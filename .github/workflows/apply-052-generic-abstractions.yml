@@ -31,10 +31,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang llvm
       - name: Apply 0.52 generic abstraction changes
         run: python tools/apply_052_generic_abstractions.py
-      - name: Repair generated regression literals and contextual Result test
+      - name: Repair generated regression fixtures
         run: |
           python - <<'PY'
           from pathlib import Path
+
           p = Path('implementations/go/cmd/saga-go/generic_abstractions_052_test.go')
           text = p.read_text(encoding='utf-8')
           text = text.replace('"42\n7"', '`42\n7`')
@@ -49,6 +50,14 @@ jobs:
               '        let checked: Result[int, text] = Result.Ok(1)\n        print(is_ok(checked))',
           )
           p.write_text(text, encoding='utf-8')
+
+          p = Path('implementations/go/cmd/saga-go/self_conformance.go')
+          text = p.read_text(encoding='utf-8')
+          old = '{"GSC047-tagged-union-payload", "enum Result{Ok(int),Err(text)}\\nlet value:Result=Result.Ok(42)\\nmatch value { case Result.Ok(number) { print(number) } case Result.Err(message) { print(message) } }", "42", ""},'
+          new = '{"GSC047-tagged-union-payload", "enum Outcome{Ok(int),Err(text)}\\nlet value:Outcome=Outcome.Ok(42)\\nmatch value { case Outcome.Ok(number) { print(number) } case Outcome.Err(message) { print(message) } }", "42", ""},'
+          if old not in text:
+              raise SystemExit('GSC047 fixture not found')
+          p.write_text(text.replace(old, new), encoding='utf-8')
           PY
       - name: Format Go implementation
         run: gofmt -w implementations/go/cmd/saga-go
