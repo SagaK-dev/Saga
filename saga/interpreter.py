@@ -16,7 +16,7 @@ from .errors import RuntimeLanguageError, RuntimeResourceError
 from .native import Capabilities, NativeFailure, NativeFunction, NativeModule
 from .stdlib import MODULES
 from .tokens import Token, TokenKind
-from .typesys import ANY, BOOL, BYTES, CLASS_VALUE, DATETIME, DECIMAL, DURATION, ERROR, INT, RATIONAL, TEXT, UNIT, FUNCTION, Type, is_assignable, is_typevar, parse_type, substitute, typevar_name, unify
+from .typesys import ANY, BOOL, BYTES, CLASS_VALUE, DATETIME, DECIMAL, DURATION, ERROR, INT, RATIONAL, TEXT, UNIT, FUNCTION, TYPECTOR, Type, is_assignable, is_typevar, parse_type, substitute, typevar_name, unify
 from .values import OptionValue, ResultValue
 
 
@@ -318,12 +318,18 @@ class EnumConstructor:
     variant: str
     payload_types: tuple[str, ...]
 
-    def __call__(self, *args: object) -> EnumValue:
+    def __call__(self, *args: object) -> object:
         if len(args) != len(self.payload_types):
             raise NativeFailure(
                 f"{self.enum_type.qualified_name}.{self.variant} は "
                 f"{len(self.payload_types)} 個のpayloadを必要とします"
             )
+        if self.enum_type.qualified_name == "Option" and self.variant == "Some":
+            return OptionValue.some(args[0])
+        if self.enum_type.qualified_name == "Result" and self.variant == "Ok":
+            return ResultValue.success(args[0])
+        if self.enum_type.qualified_name == "Result" and self.variant == "Err":
+            return ResultValue.failure(args[0])
         return EnumValue(self.enum_type.qualified_name, self.variant, tuple(args))
 
 
@@ -401,7 +407,14 @@ class Interpreter:
 
     def _register_builtins(self) -> None:
         from .checker import BUILTINS
-        for name in BUILTINS: self.globals.define(name, BuiltinFunction(name), False)
+        for name in BUILTINS:
+            if name not in {"Option", "Result"}:
+                self.globals.define(name, BuiltinFunction(name), False)
+        option_enum = EnumType("Option", {"Some": ("T",), "None": ()})
+        result_enum = EnumType("Result", {"Ok": ("T",), "Err": ("E",)})
+        self.enums.update({"Option": option_enum, "Result": result_enum})
+        self.globals.define("Option", option_enum, False)
+        self.globals.define("Result", result_enum, False)
 
     def interpret(self, program: ast.Program) -> None:
         if self.program is not None:
@@ -926,18 +939,24 @@ class Interpreter:
             self._defer_frames.pop()
             if restore: self.environment = previous
 
+    @staticmethod
+    def _enum_runtime_parts(value: object) -> tuple[str, str, tuple[object, ...]] | None:
+        if isinstance(value, EnumValue):
+            return value.enum_name, value.variant, value.payload
+        if isinstance(value, OptionValue):
+            return ("Option", "Some", (value.value,)) if value.present else ("Option", "None", ())
+        if isinstance(value, ResultValue):
+            return ("Result", "Ok", (value.value,)) if value.ok else ("Result", "Err", (value.value,))
+        return None
+
     def _match_enum_payload_pattern(
         self, value: object, pattern: ast.Expr
     ) -> tuple[bool, dict[str, object] | None]:
-        """Recognize a payload enum pattern without evaluating its bind variables.
-
-        The boolean distinguishes "not an enum payload pattern" from "recognized
-        enum pattern whose variant did not match".  Conflating those states made
-        a failed `Some(item)` case fall back to normal expression evaluation,
-        where `item` was incorrectly looked up as a runtime variable.
-        """
-        if not isinstance(value, EnumValue) or not isinstance(pattern, ast.Call):
+        """Recognize a payload ADT pattern without evaluating bind variables."""
+        parts = self._enum_runtime_parts(value)
+        if parts is None or not isinstance(pattern, ast.Call):
             return False, None
+        enum_name, variant, payload = parts
         callee = pattern.callee
         if not isinstance(callee, ast.Member):
             return False, None
@@ -945,14 +964,12 @@ class Interpreter:
         if qname is None:
             return False, None
         expected_enum = qname
-        # Module aliases are part of the observable enum identity in the
-        # interpreter. Accept exact identity and the local/unqualified form.
-        if value.enum_name != expected_enum and not value.enum_name.endswith("." + expected_enum):
+        if enum_name != expected_enum and not enum_name.endswith("." + expected_enum):
             return False, None
-        if value.variant != callee.name.lexeme or len(value.payload) != len(pattern.arguments):
+        if variant != callee.name.lexeme or len(payload) != len(pattern.arguments):
             return True, None
         bindings: dict[str, object] = {}
-        for expr, item in zip(pattern.arguments, value.payload):
+        for expr, item in zip(pattern.arguments, payload):
             if not isinstance(expr, ast.Variable):
                 return True, None
             name = expr.name.lexeme
@@ -1023,6 +1040,8 @@ class Interpreter:
                 payload_types = target.variants[name]
                 if payload_types:
                     return EnumConstructor(target, name, payload_types)
+                if target.qualified_name == "Option" and name == "None":
+                    return OptionValue.none()
                 return EnumValue(target.qualified_name, name)
             self._runtime_error(expr.name, f"enum variant '{target.qualified_name}.{name}' が見つかりません", diagnostic_id="SAGA-R123")
         if isinstance(target, SourceModuleValue):
@@ -1909,6 +1928,21 @@ class Interpreter:
         The runtime copy exists specifically so contracts that contain a type
         variable can be reified after an ``any``/native boundary.
         """
+        if pattern.name == "typeapply" and pattern.args:
+            constructor, *arguments = pattern.args
+            actual = self._runtime_type_of(value)
+            if actual is None or len(arguments) != len(actual.args) or not is_typevar(constructor):
+                return
+            name = typevar_name(constructor)
+            candidate = TYPECTOR(actual.name)
+            existing = mapping.get(name)
+            if existing is None:
+                mapping[name] = candidate
+            elif existing != candidate:
+                return
+            for expected_arg, actual_arg in zip(arguments, actual.args):
+                unify(expected_arg, actual_arg, mapping)
+            return
         if is_typevar(pattern):
             name = typevar_name(pattern)
             if name in mapping:

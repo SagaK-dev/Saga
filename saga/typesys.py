@@ -15,6 +15,11 @@ class Type:
             return f"fn({params}) -> {self.result or UNIT}"
         if self.name == "typevar":
             return self.args[0].name if self.args else "T"
+        if self.name.startswith("typector:"):
+            return self.name.split(":", 1)[1]
+        if self.name == "typeapply" and self.args:
+            constructor, *arguments = self.args
+            return f"{constructor}[{', '.join(str(arg) for arg in arguments)}]"
         if self.args:
             return f"{self.name}[{', '.join(str(arg) for arg in self.args)}]"
         return self.name
@@ -76,6 +81,23 @@ def FUNCTION(params: list[Type] | tuple[Type, ...], result: Type) -> Type:
 
 def TYPEVAR(name: str) -> Type:
     return Type("typevar", (Type(name),))
+
+
+def TYPECTOR(name: str) -> Type:
+    """A unary-or-higher type constructor captured during HKT inference."""
+    return Type(f"typector:{name}")
+
+
+def TYPEAPPLY(constructor: Type, args: list[Type] | tuple[Type, ...]) -> Type:
+    return Type("typeapply", (constructor, *tuple(args)))
+
+
+def is_typector(value: Type) -> bool:
+    return value.name.startswith("typector:")
+
+
+def typector_name(value: Type) -> str:
+    return value.name.split(":", 1)[1]
 
 
 NATIVE_ALIASES = {
@@ -148,6 +170,11 @@ class _TypeParser:
             if self._peek() != "]":
                 raise ValueError(f"型の ']' がありません: {self.text}")
             self.pos += 1
+            # A declared type variable used in constructor position (F[A]) is
+            # an applied higher-kinded variable, not a nominal object named F.
+            # Its kind arity is inferred from the number of applied arguments.
+            if name in self.type_vars:
+                return TYPEAPPLY(base, args)
             lower = name.lower()
             if lower == "list":
                 if len(args) != 1: raise ValueError("list は1つの型引数が必要です")
@@ -212,6 +239,12 @@ def typevar_name(value: Type) -> str:
 def substitute(value: Type, mapping: dict[str, Type]) -> Type:
     if is_typevar(value):
         return mapping.get(typevar_name(value), value)
+    if value.name == "typeapply" and value.args:
+        constructor = substitute(value.args[0], mapping)
+        arguments = tuple(substitute(arg, mapping) for arg in value.args[1:])
+        if is_typector(constructor):
+            return Type(typector_name(constructor), arguments)
+        return TYPEAPPLY(constructor, arguments)
     if value.name == "fn":
         return FUNCTION([substitute(arg, mapping) for arg in value.args], substitute(value.result or UNIT, mapping))
     if value.args:
@@ -226,6 +259,18 @@ def _unify_invariant(pattern: Type, actual: Type, mapping: dict[str, Type]) -> b
     corresponding actual type, but concrete generic arguments must match their
     structure exactly.
     """
+    if pattern.name == "typeapply" and pattern.args:
+        constructor, *arguments = pattern.args
+        if not is_typevar(constructor) or len(arguments) != len(actual.args):
+            return False
+        name = typevar_name(constructor)
+        candidate = TYPECTOR(actual.name)
+        existing = mapping.get(name)
+        if existing is None:
+            mapping[name] = candidate
+        elif existing != candidate:
+            return False
+        return all(_unify_invariant(p, a, mapping) for p, a in zip(arguments, actual.args))
     if is_typevar(pattern):
         name = typevar_name(pattern)
         existing = mapping.get(name)
@@ -250,6 +295,18 @@ def _unify_invariant(pattern: Type, actual: Type, mapping: dict[str, Type]) -> b
 
 
 def unify(pattern: Type, actual: Type, mapping: dict[str, Type]) -> bool:
+    if pattern.name == "typeapply" and pattern.args:
+        constructor, *arguments = pattern.args
+        if not is_typevar(constructor) or len(arguments) != len(actual.args):
+            return False
+        name = typevar_name(constructor)
+        candidate = TYPECTOR(actual.name)
+        existing = mapping.get(name)
+        if existing is None:
+            mapping[name] = candidate
+        elif existing != candidate:
+            return False
+        return all(unify(p, a, mapping) for p, a in zip(arguments, actual.args))
     if is_typevar(pattern):
         name = typevar_name(pattern)
         existing = mapping.get(name)

@@ -12,7 +12,7 @@ from .tokens import Token, TokenKind
 from .typesys import (
     ANY, BOOL, BYTES, CLASS_VALUE, DATETIME, DECIMAL, DURATION, ERROR, FUNCTION, FUTURE, INT, LIST,
     MAP, MODULE, OPTION, RANGE, RATIONAL, RESULT, SET, TEXT, UNIT, Type, common_numeric,
-    is_assignable, is_numeric, is_typevar, parse_type, substitute, typevar_name, TYPEVAR,
+    is_assignable, is_numeric, is_typevar, parse_type, substitute, typevar_name, TYPECTOR, TYPEVAR,
 )
 
 
@@ -83,6 +83,7 @@ BUILTINS = {
     "int", "repeat", "set_at", "some", "none", "is_some", "is_none",
     "unwrap", "unwrap_or", "ok", "err", "is_ok", "is_err", "unwrap_ok", "unwrap_err", "unwrap_result_or",
 }
+BUILTINS.update({"Option", "Result"})
 
 
 class TypeChecker:
@@ -111,6 +112,18 @@ class TypeChecker:
         # nominal class named "T".
         self.active_type_vars: list[set[str]] = [set()]
         self.source_modules: dict[str, SourceModuleInfo] = {}
+
+        # Option/Result are intrinsic Generic ADTs. Their runtime representation
+        # stays compatible with the long-standing some/none/ok/err helpers while
+        # the type checker exposes the same constructor/match model as user ADTs.
+        self.enums.update({"Option": {"Some", "None"}, "Result": {"Ok", "Err"}})
+        self.enum_payloads.update({
+            "Option": {"Some": (TYPEVAR("T"),), "None": ()},
+            "Result": {"Ok": (TYPEVAR("T"),), "Err": (TYPEVAR("E"),)},
+        })
+        self.enum_type_params.update({"Option": ["T"], "Result": ["T", "E"]})
+        self.scopes[0]["Option"] = VariableInfo(Type("enumtype:Option"), False)
+        self.scopes[0]["Result"] = VariableInfo(Type("enumtype:Result"), False)
 
     def check(self, program: ast.Program) -> None:
         # Module interfaces are name-resolution inputs, not ordinary executable
@@ -215,7 +228,13 @@ class TypeChecker:
             info.methods[method.name.lexeme] = method_info
 
     def _validate_type_reference(self, value: Type, token: Token) -> None:
-        if is_typevar(value) or value == ANY:
+        if is_typevar(value) or value == ANY or value.name.startswith("typector:"):
+            return
+        if value.name == "typeapply":
+            if not value.args or not is_typevar(value.args[0]):
+                self._error(token, "higher-kinded application requires a type-constructor variable", diagnostic_id="SAGA-T103")
+            for argument in value.args[1:]:
+                self._validate_type_reference(argument, token)
             return
         if value.name == "fn":
             for param in value.args:
@@ -349,9 +368,20 @@ class TypeChecker:
                 if missing: self._error(info.declaration.name, f"抽象メソッドを実装してください: {', '.join(missing)}")
 
     def _require_override_compatible(self, parent: FunctionInfo, child: FunctionInfo, token: Token) -> None:
-        if len(parent.params) != len(child.params) or any(a != b for a, b in zip(parent.params, child.params)):
+        if len(parent.type_params) != len(child.type_params):
+            self._error(token, "オーバーライドするgeneric methodの型パラメータ数を親と揃えてください")
+        # Generic method parameters are alpha-equivalent: an interface may use
+        # U while its implementation uses V. Normalize the implementation's
+        # method-local variables to the contract names before comparing types.
+        alpha = {
+            child_name: TYPEVAR(parent_name)
+            for parent_name, child_name in zip(parent.type_params, child.type_params)
+        }
+        child_params = [substitute(value, alpha) for value in child.params]
+        child_return = substitute(child.return_type, alpha) if child.return_type else None
+        if len(parent.params) != len(child_params) or any(a != b for a, b in zip(parent.params, child_params)):
             self._error(token, "オーバーライドするメソッドの引数型を親と揃えてください")
-        if parent.return_type and child.return_type and not self._is_assignable(parent.return_type, child.return_type):
+        if parent.return_type and child_return and not self._is_assignable(parent.return_type, child_return):
             self._error(token, "オーバーライドするメソッドの戻り値型が親と互換ではありません")
 
     def _resolve_inferred_expression_functions(self) -> None:
@@ -585,12 +615,24 @@ class TypeChecker:
         self.source_modules[bind] = SourceModuleInfo(stmt.name, members)
         self.scopes[-1][bind] = VariableInfo(Type(f"srcmodule:{bind}"), False)
 
+    def _enum_identity(self, value: Type | None) -> tuple[str, tuple[Type, ...]] | None:
+        if value is None:
+            return None
+        if value.name == "option" and len(value.args) == 1:
+            return "Option", value.args
+        if value.name == "result" and len(value.args) == 2:
+            return "Result", value.args
+        if value.name.startswith("object:"):
+            name = value.name.split(":", 1)[1]
+            if name in self.enums:
+                return name, value.args
+        return None
+
     def _enum_match_pattern(self, expr: ast.Expr, enum_type: Type | None) -> tuple[str, dict[str, VariableInfo]] | None:
-        if enum_type is None or not enum_type.name.startswith("object:"):
+        identity = self._enum_identity(enum_type)
+        if identity is None:
             return None
-        enum_name = enum_type.name.split(":", 1)[1]
-        if enum_name not in self.enums:
-            return None
+        enum_name, enum_args = identity
         callee: ast.Expr = expr.callee if isinstance(expr, ast.Call) else expr
         qname = self._qualified_expr_name(callee)
         if not qname or "." not in qname:
@@ -599,7 +641,7 @@ class TypeChecker:
         if owner != enum_name or variant not in self.enums.get(enum_name, set()):
             return None
         params = self.enum_type_params.get(enum_name, [])
-        mapping = {name: arg for name, arg in zip(params, enum_type.args)}
+        mapping = {name: arg for name, arg in zip(params, enum_args)}
         payload = tuple(substitute(t, mapping) for t in self.enum_payloads.get(enum_name, {}).get(variant, ()))
         args = expr.arguments if isinstance(expr, ast.Call) else []
         if len(args) != len(payload):
@@ -663,7 +705,8 @@ class TypeChecker:
             if stmt.else_branch: self._check_block(stmt.else_branch)
         elif isinstance(stmt, ast.MatchStmt):
             value_type = self._check_expr(stmt.value)
-            enum_name = value_type.name.split(":", 1)[1] if value_type.name.startswith("object:") and value_type.name.split(":", 1)[1] in self.enums else None
+            enum_identity = self._enum_identity(value_type)
+            enum_name = enum_identity[0] if enum_identity is not None else None
             seen: set[str] = set()
             covered: set[str] = set()
             for case in stmt.cases:
@@ -1125,7 +1168,12 @@ class TypeChecker:
                 self._error(expr.name, f"enum variant '{enum_name}.{expr.name.lexeme}' が見つかりません", diagnostic_id="SAGA-T106")
             payload = self.enum_payloads.get(enum_name, {}).get(expr.name.lexeme, ())
             params = self.enum_type_params.get(enum_name, [])
-            result = Type(f"object:{enum_name}", tuple(TYPEVAR(name) for name in params))
+            if enum_name == "Option":
+                result = OPTION(TYPEVAR("T"))
+            elif enum_name == "Result":
+                result = RESULT(TYPEVAR("T"), TYPEVAR("E"))
+            else:
+                result = Type(f"object:{enum_name}", tuple(TYPEVAR(name) for name in params))
             if payload:
                 return FUNCTION(list(payload), result)
             if not params:
@@ -1689,6 +1737,18 @@ class TypeChecker:
         return False
 
     def _unify_invariant(self, pattern: Type, actual: Type, mapping: dict[str, Type]) -> bool:
+        if pattern.name == "typeapply" and pattern.args:
+            constructor, *arguments = pattern.args
+            if not is_typevar(constructor) or len(arguments) != len(actual.args):
+                return False
+            name = typevar_name(constructor)
+            candidate = TYPECTOR(actual.name)
+            existing = mapping.get(name)
+            if existing is None:
+                mapping[name] = candidate
+            elif existing != candidate:
+                return False
+            return all(self._unify_invariant(p, a, mapping) for p, a in zip(arguments, actual.args))
         if is_typevar(pattern):
             name = typevar_name(pattern)
             existing = mapping.get(name)
@@ -1745,6 +1805,18 @@ class TypeChecker:
         return self._is_assignable(pattern, actual)
 
     def _unify(self, pattern: Type, actual: Type, mapping: dict[str, Type]) -> bool:
+        if pattern.name == "typeapply" and pattern.args:
+            constructor, *arguments = pattern.args
+            if not is_typevar(constructor) or len(arguments) != len(actual.args):
+                return False
+            name = typevar_name(constructor)
+            candidate = TYPECTOR(actual.name)
+            existing = mapping.get(name)
+            if existing is None:
+                mapping[name] = candidate
+            elif existing != candidate:
+                return False
+            return all(self._unify(p, a, mapping) for p, a in zip(arguments, actual.args))
         if is_typevar(pattern):
             name = typevar_name(pattern)
             existing = mapping.get(name)

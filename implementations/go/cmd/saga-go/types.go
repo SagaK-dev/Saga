@@ -20,6 +20,16 @@ func (t Type) String() string {
 		}
 		return "fn(" + strings.Join(a, ", ") + ") -> " + r
 	}
+	if strings.HasPrefix(t.Name, "typector:") {
+		return strings.TrimPrefix(t.Name, "typector:")
+	}
+	if t.Name == "typeapply" && len(t.Args) > 0 {
+		a := []string{}
+		for _, x := range t.Args[1:] {
+			a = append(a, x.String())
+		}
+		return t.Args[0].String() + "[" + strings.Join(a, ", ") + "]"
+	}
 	if len(t.Args) > 0 {
 		a := []string{}
 		for _, x := range t.Args {
@@ -65,6 +75,11 @@ func objectT(n string, args ...Type) Type { return Type{Name: "object:" + n, Arg
 func fnT(a []Type, r Type) Type           { rr := r; return Type{Name: "fn", Args: a, Result: &rr} }
 func typeVar(n string) Type               { return Type{Name: "$" + n} }
 func isTypeVar(t Type) bool               { return strings.HasPrefix(t.Name, "$") }
+func typeCtor(n string) Type              { return Type{Name: "typector:" + n} }
+func isTypeCtor(t Type) bool              { return strings.HasPrefix(t.Name, "typector:") }
+func typeApply(ctor Type, args ...Type) Type {
+	return Type{Name: "typeapply", Args: append([]Type{ctor}, args...)}
+}
 func isExactNumeric(t Type) bool {
 	switch t.Name {
 	case "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "decimal", "rational":
@@ -112,6 +127,17 @@ func substitute(t Type, m map[string]Type) Type {
 		}
 		return t
 	}
+	if t.Name == "typeapply" && len(t.Args) > 0 {
+		ctor := substitute(t.Args[0], m)
+		applied := []Type{}
+		for _, a := range t.Args[1:] {
+			applied = append(applied, substitute(a, m))
+		}
+		if isTypeCtor(ctor) {
+			return Type{Name: strings.TrimPrefix(ctor.Name, "typector:"), Args: applied}
+		}
+		return typeApply(ctor, applied...)
+	}
 	r := Type{Name: t.Name}
 	for _, a := range t.Args {
 		r.Args = append(r.Args, substitute(a, m))
@@ -125,7 +151,14 @@ func substitute(t Type, m map[string]Type) Type {
 func typeFromRef(r TypeRef, vars map[string]bool) Type {
 	n := r.Name
 	aliases := map[string]Type{"int": TInt, "Int": TInt, "integer": TInt, "int8": TInt8, "int16": TInt16, "int32": TInt32, "int64": TInt64, "uint8": TUInt8, "uint16": TUInt16, "uint32": TUInt32, "uint64": TUInt64, "decimal": TDecimal, "Decimal": TDecimal, "number": TDecimal, "rational": TRational, "Rational": TRational, "fraction": TRational, "float32": TFloat32, "Float32": TFloat32, "float64": TFloat64, "Float64": TFloat64, "bool": TBool, "Bool": TBool, "boolean": TBool, "text": TText, "Text": TText, "string": TText, "String": TText, "unit": TUnit, "Unit": TUnit, "range": TRange, "Range": TRange, "any": TAny, "Any": TAny, "bytes": TBytes, "Bytes": TBytes, "error": TError, "Error": TError}
+	args := []Type{}
+	for _, a := range r.Args {
+		args = append(args, typeFromRef(a, vars))
+	}
 	if vars[n] {
+		if len(args) > 0 {
+			return typeApply(typeVar(n), args...)
+		}
 		return typeVar(n)
 	}
 	if dot := strings.IndexByte(n, '.'); dot > 0 {
@@ -133,10 +166,6 @@ func typeFromRef(r TypeRef, vars map[string]bool) Type {
 		if vars[prefix] && assoc != "" {
 			return Type{Name: "assoc:$" + prefix + "." + assoc}
 		}
-	}
-	args := []Type{}
-	for _, a := range r.Args {
-		args = append(args, typeFromRef(a, vars))
 	}
 	if a, ok := aliases[n]; ok {
 		return a
@@ -182,6 +211,28 @@ func typeFromRef(r TypeRef, vars map[string]bool) Type {
 	return objectT(n, args...)
 }
 func unify(pattern, actual Type, m map[string]Type) bool {
+	if pattern.Name == "typeapply" && len(pattern.Args) > 0 {
+		ctor := pattern.Args[0]
+		applied := pattern.Args[1:]
+		if !isTypeVar(ctor) || len(applied) != len(actual.Args) {
+			return false
+		}
+		name := strings.TrimPrefix(ctor.Name, "$")
+		candidate := typeCtor(actual.Name)
+		if existing, ok := m[name]; ok {
+			if !sameType(existing, candidate) {
+				return false
+			}
+		} else {
+			m[name] = candidate
+		}
+		for idx := range applied {
+			if !unify(applied[idx], actual.Args[idx], m) {
+				return false
+			}
+		}
+		return true
+	}
 	if isTypeVar(pattern) {
 		n := strings.TrimPrefix(pattern.Name, "$")
 		if x, ok := m[n]; ok {
@@ -200,6 +251,12 @@ func unify(pattern, actual Type, m map[string]Type) bool {
 		if !unify(pattern.Args[i], actual.Args[i], m) {
 			return false
 		}
+	}
+	if (pattern.Result == nil) != (actual.Result == nil) {
+		return false
+	}
+	if pattern.Result != nil && !unify(*pattern.Result, *actual.Result, m) {
+		return false
 	}
 	return true
 }

@@ -52,8 +52,13 @@ func NewInterpreter(checker *Checker, output func(string)) *Interpreter {
 	in := &Interpreter{Global: g, Env: g, Functions: map[string]*Function{}, Classes: map[string]*Class{}, Checker: checker, Precision: 50, output: output}
 	for name := range coreBuiltins {
 		n := name
+		if n == "Option" || n == "Result" {
+			continue
+		}
 		g.define(n, &NativeFunc{Name: n, Call: func(i *Interpreter, args []Value) (Value, error) { return i.callBuiltin(n, args) }}, false)
 	}
+	g.define("Option", EnumType{Name: "Option", Variants: map[string]int{"Some": 1, "None": 0}}, false)
+	g.define("Result", EnumType{Name: "Result", Variants: map[string]int{"Ok": 1, "Err": 1}}, false)
 	return in
 }
 
@@ -173,6 +178,25 @@ func normalizeControl(err error) error {
 		return &SagaError{Code: "SAGA-R001", ID: "SAGA-R113", Message: "loop control outside loop"}
 	}
 	return err
+}
+
+func enumRuntimeParts(v Value) (string, string, []Value, bool) {
+	switch q := v.(type) {
+	case EnumValue:
+		return q.Enum, q.Variant, q.Payload, true
+	case OptionValue:
+		if q.Present {
+			return "Option", "Some", []Value{q.Value}, true
+		}
+		return "Option", "None", nil, true
+	case ResultValue:
+		if q.OK {
+			return "Result", "Ok", []Value{q.Value}, true
+		}
+		return "Result", "Err", []Value{q.Value}, true
+	default:
+		return "", "", nil, false
+	}
 }
 
 func (i *Interpreter) exec(s Stmt) error {
@@ -414,16 +438,16 @@ func (i *Interpreter) exec(s Stmt) error {
 			return e
 		}
 		for _, mc := range x.Cases {
-			if ev, ok := v.(EnumValue); ok {
+			if enumName, enumVariant, enumPayload, ok := enumRuntimeParts(v); ok {
 				if call, ok := mc.Pattern.(*Call); ok {
 					if m, ok := call.Callee.(*Member); ok {
 						owner, qok := sourceQualifiedExprName(m.Target)
-						if qok && (ev.Enum == owner || strings.HasSuffix(ev.Enum, "."+owner)) {
+						if qok && (enumName == owner || strings.HasSuffix(enumName, "."+owner)) {
 							// A payload pattern belonging to the matched enum is
 							// syntactic data, not an expression to evaluate. If its
 							// variant does not match, continue to the next case instead
 							// of resolving binding names as ordinary variables.
-							if ev.Variant != m.Name || len(ev.Payload) != len(call.Args) {
+							if enumVariant != m.Name || len(enumPayload) != len(call.Args) {
 								continue
 							}
 							env := newEnv(i.Env)
@@ -435,7 +459,7 @@ func (i *Interpreter) exec(s Stmt) error {
 									break
 								}
 								if vr.Name != "_" {
-									env.define(vr.Name, ev.Payload[idx], false)
+									env.define(vr.Name, enumPayload[idx], false)
 								}
 							}
 							if valid {
@@ -934,6 +958,9 @@ func (i *Interpreter) member(o Value, name string, t Token) (Value, error) {
 			if arity > 0 {
 				return &EnumConstructor{Enum: q.Name, Variant: name, Arity: arity}, nil
 			}
+			if q.Name == "Option" && name == "None" {
+				return OptionValue{Present: false}, nil
+			}
 			return EnumValue{Enum: q.Name, Variant: name}, nil
 		}
 		return nil, i.rerr(t, "SAGA-R123", "unknown enum variant: "+q.Name+"."+name)
@@ -1057,6 +1084,15 @@ func (i *Interpreter) invokeDirect(c Value, args []Value, t Token) (Value, error
 	case *EnumConstructor:
 		if len(args) != f.Arity {
 			return nil, i.rerr(t, "SAGA-R136", fmt.Sprintf("%s.%s expects %d payload values", f.Enum, f.Variant, f.Arity))
+		}
+		if f.Enum == "Option" && f.Variant == "Some" {
+			return OptionValue{Present: true, Value: args[0]}, nil
+		}
+		if f.Enum == "Result" && f.Variant == "Ok" {
+			return ResultValue{OK: true, Value: args[0]}, nil
+		}
+		if f.Enum == "Result" && f.Variant == "Err" {
+			return ResultValue{OK: false, Value: args[0]}, nil
 		}
 		return EnumValue{Enum: f.Enum, Variant: f.Variant, Payload: append([]Value{}, args...)}, nil
 	default:
