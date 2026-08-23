@@ -2,4 +2,4 @@ from .api import SagaSession, compile_file, compile_source, parse_source, run_fi
 from .native import Capabilities
 
 __all__ = ["compile_source", "parse_source", "run_source", "compile_file", "run_file", "SagaSession", "Capabilities"]
-__version__ = "0.51.0"
+__version__ = "0.52.0"

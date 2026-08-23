@@ -64,7 +64,16 @@ type Checker struct {
 }
 
 func NewChecker() *Checker {
-	return &Checker{Scopes: []map[string]VarInfo{{}}, Functions: map[string]FuncInfo{}, Classes: map[string]*ClassInfo{}, LocalFunctions: map[*FnDecl]FuncInfo{}, Enums: map[string]map[string]bool{}, EnumPayloads: map[string]map[string][]Type{}, EnumTypeParams: map[string][]string{}, SourceModules: map[string]SourceModuleInfo{}, CurrentConstraints: map[string][]Type{}}
+	c := &Checker{Scopes: []map[string]VarInfo{{}}, Functions: map[string]FuncInfo{}, Classes: map[string]*ClassInfo{}, LocalFunctions: map[*FnDecl]FuncInfo{}, Enums: map[string]map[string]bool{}, EnumPayloads: map[string]map[string][]Type{}, EnumTypeParams: map[string][]string{}, SourceModules: map[string]SourceModuleInfo{}, CurrentConstraints: map[string][]Type{}}
+	c.Enums["Option"] = map[string]bool{"Some": true, "None": true}
+	c.EnumPayloads["Option"] = map[string][]Type{"Some": {typeVar("T")}, "None": {}}
+	c.EnumTypeParams["Option"] = []string{"T"}
+	c.Enums["Result"] = map[string]bool{"Ok": true, "Err": true}
+	c.EnumPayloads["Result"] = map[string][]Type{"Ok": {typeVar("T")}, "Err": {typeVar("E")}}
+	c.EnumTypeParams["Result"] = []string{"T", "E"}
+	c.Scopes[0]["Option"] = VarInfo{Typ: Type{Name: "enumtype:Option"}}
+	c.Scopes[0]["Result"] = VarInfo{Typ: Type{Name: "enumtype:Result"}}
+	return c
 }
 
 func sagaEditDistance(a, b string) int {
@@ -200,7 +209,7 @@ func (c *Checker) isHashableTypeDeep(t Type) bool {
 	return false
 }
 
-var coreBuiltins = map[string]bool{"print": true, "len": true, "text": true, "decimal": true, "float32": true, "float64": true, "ratio": true, "abs": true, "sqrt": true, "round": true, "min": true, "max": true, "sum": true, "mean": true, "append": true, "prepend": true, "get": true, "contains": true, "assert": true, "precision": true, "floor": true, "ceil": true, "slice": true, "reverse": true, "sort": true, "unique": true, "transform": true, "filter": true, "reduce": true, "find": true, "any": true, "all": true, "split": true, "join": true, "trim": true, "upper": true, "lower": true, "replace": true, "starts_with": true, "ends_with": true, "find_text": true, "substring": true, "map_of": true, "map_get": true, "map_put": true, "map_remove": true, "map_keys": true, "map_values": true, "map_contains": true, "set_of": true, "set_add": true, "set_remove": true, "set_contains": true, "set_union": true, "set_intersection": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "repeat": true, "set_at": true, "some": true, "none": true, "is_some": true, "is_none": true, "unwrap": true, "unwrap_or": true, "ok": true, "err": true, "is_ok": true, "is_err": true, "unwrap_ok": true, "unwrap_err": true, "unwrap_result_or": true}
+var coreBuiltins = map[string]bool{"print": true, "len": true, "text": true, "decimal": true, "float32": true, "float64": true, "ratio": true, "abs": true, "sqrt": true, "round": true, "min": true, "max": true, "sum": true, "mean": true, "append": true, "prepend": true, "get": true, "contains": true, "assert": true, "precision": true, "floor": true, "ceil": true, "slice": true, "reverse": true, "sort": true, "unique": true, "transform": true, "filter": true, "reduce": true, "find": true, "any": true, "all": true, "split": true, "join": true, "trim": true, "upper": true, "lower": true, "replace": true, "starts_with": true, "ends_with": true, "find_text": true, "substring": true, "map_of": true, "map_get": true, "map_put": true, "map_remove": true, "map_keys": true, "map_values": true, "map_contains": true, "set_of": true, "set_add": true, "set_remove": true, "set_contains": true, "set_union": true, "set_intersection": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "repeat": true, "set_at": true, "some": true, "none": true, "is_some": true, "is_none": true, "unwrap": true, "unwrap_or": true, "ok": true, "err": true, "is_ok": true, "is_err": true, "unwrap_ok": true, "unwrap_err": true, "unwrap_result_or": true, "Option": true, "Result": true}
 
 func (c *Checker) Check(stmts []Stmt) error {
 	// Source-module interfaces are name-resolution inputs. Load their public
@@ -668,16 +677,31 @@ func (c *Checker) resolveInheritance() error {
 	return nil
 }
 func (c *Checker) overrideCompatible(a, b FuncInfo, t Token) error {
-	if len(a.Params) != len(b.Params) {
+	if len(a.TypeParams) != len(b.TypeParams) {
+		return c.err(t, "SAGA-T103", "override generic method type-parameter count differs")
+	}
+	alpha := map[string]Type{}
+	for idx, childName := range b.TypeParams {
+		alpha[childName] = typeVar(a.TypeParams[idx])
+	}
+	params := make([]Type, 0, len(b.Params))
+	for _, param := range b.Params {
+		params = append(params, substitute(param, alpha))
+	}
+	ret := b.Ret
+	if b.HasRet {
+		ret = substitute(b.Ret, alpha)
+	}
+	if len(a.Params) != len(params) {
 		return c.err(t, "SAGA-T103", "override parameter count differs")
 	}
 	for i := range a.Params {
-		if !sameType(a.Params[i], b.Params[i]) {
+		if !sameType(a.Params[i], params[i]) {
 			return c.err(t, "SAGA-T103", "override parameter type differs")
 		}
 	}
-	if a.HasRet && b.HasRet && !c.assignable(a.Ret, b.Ret) {
-		return c.err(t, "SAGA-T103", fmt.Sprintf("override return type is incompatible: contract %s, implementation %s", a.Ret, b.Ret))
+	if a.HasRet && b.HasRet && !c.assignable(a.Ret, ret) {
+		return c.err(t, "SAGA-T103", fmt.Sprintf("override return type is incompatible: contract %s, implementation %s", a.Ret, ret))
 	}
 	return nil
 }
@@ -1526,14 +1550,28 @@ func (c *Checker) refreshSourceModuleConstructors() {
 	}
 }
 
+func (c *Checker) enumIdentity(t Type) (string, []Type, bool) {
+	if t.Name == "option" && len(t.Args) == 1 {
+		return "Option", t.Args, true
+	}
+	if t.Name == "result" && len(t.Args) == 2 {
+		return "Result", t.Args, true
+	}
+	name := objectTypeName(t)
+	if name != "" && c.Enums[name] != nil {
+		return name, t.Args, true
+	}
+	return "", nil, false
+}
+
 func (c *Checker) enumMatchPattern(e Expr, enumType Type) (string, map[string]VarInfo, bool, error) {
-	enumName := objectTypeName(enumType)
-	if enumName == "" || c.Enums[enumName] == nil {
+	enumName, enumArgs, ok := c.enumIdentity(enumType)
+	if !ok {
 		return "", nil, false, nil
 	}
 	callee := e
 	args := []Expr{}
-	if call, ok := e.(*Call); ok {
+	if call, isCall := e.(*Call); isCall {
 		callee = call.Callee
 		args = call.Args
 	}
@@ -1546,7 +1584,7 @@ func (c *Checker) enumMatchPattern(e Expr, enumType Type) (string, map[string]Va
 	if owner != enumName || !c.Enums[enumName][variant] {
 		return "", nil, false, nil
 	}
-	mapping := typeParamMap(c.EnumTypeParams[enumName], enumType.Args)
+	mapping := typeParamMap(c.EnumTypeParams[enumName], enumArgs)
 	rawPayload := c.EnumPayloads[enumName][variant]
 	payload := make([]Type, 0, len(rawPayload))
 	for _, typ := range rawPayload {
@@ -1557,8 +1595,8 @@ func (c *Checker) enumMatchPattern(e Expr, enumType Type) (string, map[string]Va
 	}
 	bindings := map[string]VarInfo{}
 	for idx, arg := range args {
-		v, ok := arg.(*Variable)
-		if !ok {
+		v, isVariable := arg.(*Variable)
+		if !isVariable {
 			return "", nil, true, c.err(arg.token(), "SAGA-T103", "match payload pattern must be a variable or _")
 		}
 		if v.Name == "_" {
@@ -1622,13 +1660,7 @@ func (c *Checker) checkStmt(s Stmt) error {
 			return e
 		}
 		seen := map[string]bool{}
-		enumName := ""
-		if strings.HasPrefix(vt.Name, "object:") {
-			n := strings.TrimPrefix(vt.Name, "object:")
-			if c.Enums[n] != nil {
-				enumName = n
-			}
-		}
+		enumName, _, _ := c.enumIdentity(vt)
 		covered := map[string]bool{}
 		for _, mc := range x.Cases {
 			variant, bindings, matched, pe := c.enumMatchPattern(mc.Pattern, vt)
@@ -2376,6 +2408,12 @@ func (c *Checker) checkMember(v *Member, expected *Type) (Type, error) {
 				retArgs = append(retArgs, typeVar(name))
 			}
 			result := objectT(n, retArgs...)
+			if n == "Option" {
+				result = optionT(typeVar("T"))
+			}
+			if n == "Result" {
+				result = resultT(typeVar("T"), typeVar("E"))
+			}
 			if len(ps) > 0 {
 				return fnT(ps, result), nil
 			}

@@ -64,7 +64,7 @@ var goSelfCases = []goSelfCase{
 	{"GSC044-remainder-zero-diagnostic", "print(1 % 0)", "", "SAGA-R102"},
 	{"GSC045-unless", "let ready=false\nunless ready { print \"not ready\" }", "not ready", ""},
 	{"GSC046-enum-exhaustive-diagnostic", "enum State{Ready,Running,Done}\nmatch State.Ready { case State.Ready { print(1) } case State.Done { print(3) } }", "", "SAGA-T112"},
-	{"GSC047-tagged-union-payload", "enum Result{Ok(int),Err(text)}\nlet value:Result=Result.Ok(42)\nmatch value { case Result.Ok(number) { print(number) } case Result.Err(message) { print(message) } }", "42", ""},
+	{"GSC047-tagged-union-payload", "enum Outcome{Ok(int),Err(text)}\nlet value:Outcome=Outcome.Ok(42)\nmatch value { case Outcome.Ok(number) { print(number) } case Outcome.Err(message) { print(message) } }", "42", ""},
 	{"GSC048-tagged-union-equality", "enum Pair{Value(int,text),Empty}\nprint(Pair.Value(7,\"x\")==Pair.Value(7,\"x\"))\nprint(Pair.Value(7,\"x\")==Pair.Value(8,\"x\"))", "true\nfalse", ""},
 }
 
