@@ -27,487 +27,200 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: str, old: str, new: str) -> None:
+          def r(path: str, label: str, old: str, new: str) -> None:
               p = Path(path)
               text = p.read_text(encoding="utf-8")
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"{path}: expected one patch anchor, found {count}")
+                  raise SystemExit(f"{label}: expected one patch anchor in {path}, found {count}")
               p.write_text(text.replace(old, new, 1), encoding="utf-8")
+              print(f"patched: {label}")
 
           py = "saga/stdlib/drone_control.py"
-          replace_once(py, '''def _positive(name: str, value: Decimal) -> Decimal:
-              value = _finite(name, value)
-              if value <= 0:
-                  raise DroneControlError(f"{name} must be > 0")
-              return value
-
-
-          def _clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
-          ''', '''def _positive(name: str, value: Decimal) -> Decimal:
-              value = _finite(name, value)
-              if value <= 0:
-                  raise DroneControlError(f"{name} must be > 0")
-              return value
-
-
-          def _latitude(name: str, value: Decimal) -> Decimal:
-              value = _finite(name, value)
-              if not Decimal("-90") <= value <= Decimal("90"):
-                  raise DroneControlError(f"{name} must be in -90..90")
-              return value
-
-
-          def _longitude(name: str, value: Decimal) -> Decimal:
-              value = _finite(name, value)
-              if not Decimal("-180") <= value <= Decimal("180"):
-                  raise DroneControlError(f"{name} must be in -180..180")
-              return value
-
-
-          def _wrap_longitude(value: Decimal) -> Decimal:
-              value = _finite("longitude", value)
-              return Decimal(str((float(value) + 180.0) % 360.0 - 180.0))
-
-
-          def _clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
-          ''')
-
-          replace_once(py, '''    def __post_init__(self) -> None:
-              for name in ("home_lat_deg", "home_lon_deg", "min_alt_m", "max_alt_m"):
-                  _finite(name, getattr(self, name))
-              self.radius_m = _positive("radius_m", self.radius_m)
-              if self.min_alt_m >= self.max_alt_m:
-                  raise DroneControlError("min_alt_m must be smaller than max_alt_m")
-              if not Decimal("-90") <= self.home_lat_deg <= Decimal("90"):
-                  raise DroneControlError("home latitude outside -90..90")
-              if not Decimal("-180") <= self.home_lon_deg <= Decimal("180"):
-                  raise DroneControlError("home longitude outside -180..180")
-
-              def horizontal_distance_m(self, lat_deg: Decimal, lon_deg: Decimal) -> Decimal:
-              lat_deg = _finite("latitude", lat_deg); lon_deg = _finite("longitude", lon_deg)
-          ''', '''    def __post_init__(self) -> None:
-              self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)
-              self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)
-              self.min_alt_m = _finite("min_alt_m", self.min_alt_m)
-              self.max_alt_m = _finite("max_alt_m", self.max_alt_m)
-              self.radius_m = _positive("radius_m", self.radius_m)
-              if self.min_alt_m >= self.max_alt_m:
-                  raise DroneControlError("min_alt_m must be smaller than max_alt_m")
-
-              def horizontal_distance_m(self, lat_deg: Decimal, lon_deg: Decimal) -> Decimal:
-              lat_deg = _latitude("latitude", lat_deg); lon_deg = _longitude("longitude", lon_deg)
-          ''')
-
-          replace_once(py, '''        horizon = _positive("horizon_seconds", horizon_seconds)
-              north = _finite("north_mps", north_mps) * horizon
-              east = _finite("east_mps", east_mps) * horizon
-              up = _finite("up_mps", up_mps) * horizon
-              lat_delta = Decimal(str(math.degrees(float(north / EARTH_RADIUS_M))))
-              cos_lat = max(1e-9, abs(math.cos(math.radians(float(lat_deg)))))
-              lon_delta = Decimal(str(math.degrees(float(east / EARTH_RADIUS_M)) / cos_lat))
-              return not self.contains(lat_deg + lat_delta, lon_deg + lon_delta, alt_m + up)
-          ''', '''        horizon = _positive("horizon_seconds", horizon_seconds)
-              lat_deg = _latitude("latitude", lat_deg)
-              lon_deg = _longitude("longitude", lon_deg)
-              alt_m = _finite("altitude", alt_m)
-              north = _finite("north_mps", north_mps) * horizon
-              east = _finite("east_mps", east_mps) * horizon
-              up = _finite("up_mps", up_mps) * horizon
-              lat_delta = Decimal(str(math.degrees(float(north / EARTH_RADIUS_M))))
-              cos_lat = max(1e-9, abs(math.cos(math.radians(float(lat_deg)))))
-              lon_delta = Decimal(str(math.degrees(float(east / EARTH_RADIUS_M)) / cos_lat))
-              projected_lat = lat_deg + lat_delta
-              if not Decimal("-90") <= projected_lat <= Decimal("90"):
-                  return True
-              projected_lon = _wrap_longitude(lon_deg + lon_delta)
-              return not self.contains(projected_lat, projected_lon, alt_m + up)
-          ''')
-
-          replace_once(py, '''        self.waypoints.append(Waypoint(_finite("lat", lat_deg), _finite("lon", lon_deg),
-                                                     _finite("alt", alt_m), acceptance_radius_m, hold_seconds))
-          ''', '''        self.waypoints.append(Waypoint(_latitude("lat", lat_deg), _longitude("lon", lon_deg),
-                                                     _finite("alt", alt_m), acceptance_radius_m, hold_seconds))
-          ''')
-
-          replace_once(py, '''        battery_fraction = _finite("battery_fraction", battery_fraction)
-              self.estimator_healthy = bool(estimator_healthy)
-              self.position_healthy = bool(position_healthy)
-              self.battery_fraction = _clamp(battery_fraction, D0, D1)
-          ''', '''        battery_fraction = _finite("battery_fraction", battery_fraction)
-              if not D0 <= battery_fraction <= D1:
-                  raise DroneControlError("battery_fraction must be in 0..1")
-              self.estimator_healthy = bool(estimator_healthy)
-              self.position_healthy = bool(position_healthy)
-              self.battery_fraction = battery_fraction
-          ''')
-
-          replace_once(py, '''    def __post_init__(self) -> None:
-              for name in ("home_lat_deg", "home_lon_deg", "home_alt_m", "return_alt_m"):
-                  _finite(name, getattr(self, name))
-              self.acceptance_radius_m = _positive("acceptance_radius_m", self.acceptance_radius_m)
-          ''', '''    def __post_init__(self) -> None:
-              self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)
-              self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)
-              self.home_alt_m = _finite("home_alt_m", self.home_alt_m)
-              self.return_alt_m = _finite("return_alt_m", self.return_alt_m)
-              self.acceptance_radius_m = _positive("acceptance_radius_m", self.acceptance_radius_m)
-          ''')
-
-          replace_once(py, '''    def target(self, lat_deg: Decimal, lon_deg: Decimal, alt_m: Decimal) -> dict[str, object]:
-              distance = Geofence(self.home_lat_deg, self.home_lon_deg, Decimal("1"),
-          ''', '''    def target(self, lat_deg: Decimal, lon_deg: Decimal, alt_m: Decimal) -> dict[str, object]:
-              lat_deg = _latitude("lat_deg", lat_deg)
-              lon_deg = _longitude("lon_deg", lon_deg)
-              distance = Geofence(self.home_lat_deg, self.home_lon_deg, Decimal("1"),
-          ''')
-
-          replace_once(py, '''def _f32(name: str, value: Decimal) -> float:
-              value = _finite(name, value)
-              f = float(value)
-              if not math.isfinite(f):
-                  raise DroneControlError(f"{name} cannot be represented as float32")
-              return f
-          ''', '''def _f32(name: str, value: Decimal) -> float:
-              value = _finite(name, value)
-              f = float(value)
-              if not math.isfinite(f):
-                  raise DroneControlError(f"{name} cannot be represented as float32")
-              try:
-                  packed = struct.pack("<f", f)
-              except (OverflowError, struct.error) as exc:
-                  raise DroneControlError(f"{name} cannot be represented as float32") from exc
-              f32 = struct.unpack("<f", packed)[0]
-              if not math.isfinite(f32):
-                  raise DroneControlError(f"{name} cannot be represented as float32")
-              return f32
-          ''')
-
-          replace_once(py, '''        if self.last_sequence is not None:
-                  delta = (seq - self.last_sequence) & 0xFF
-                  if delta == 0:
-                      self.duplicates += 1
-                  elif 1 < delta < 128:
-                      self.lost += delta - 1
-                  elif delta >= 128:
-                      self.out_of_order += 1
-              self.last_sequence = seq
-          ''', '''        if self.last_sequence is None:
-                  self.last_sequence = seq
-                  return
-              delta = (seq - self.last_sequence) & 0xFF
-              if delta == 0:
-                  self.duplicates += 1
-              elif delta < 128:
-                  if delta > 1:
-                      self.lost += delta - 1
-                  self.last_sequence = seq
-              else:
-                  self.out_of_order += 1
-          ''')
+          marker = "\ndef _clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:\n"
+          helpers = (
+              "\ndef _latitude(name: str, value: Decimal) -> Decimal:\n"
+              "    value = _finite(name, value)\n"
+              "    if not Decimal(\"-90\") <= value <= Decimal(\"90\"):\n"
+              "        raise DroneControlError(f\"{name} must be in -90..90\")\n"
+              "    return value\n\n\n"
+              "def _longitude(name: str, value: Decimal) -> Decimal:\n"
+              "    value = _finite(name, value)\n"
+              "    if not Decimal(\"-180\") <= value <= Decimal(\"180\"):\n"
+              "        raise DroneControlError(f\"{name} must be in -180..180\")\n"
+              "    return value\n\n\n"
+              "def _wrap_longitude(value: Decimal) -> Decimal:\n"
+              "    value = _finite(\"longitude\", value)\n"
+              "    wrapped = (float(value) + 180.0) % 360.0 - 180.0\n"
+              "    if not math.isfinite(wrapped):\n"
+              "        raise DroneControlError(\"longitude projection is not finite\")\n"
+              "    return Decimal(str(wrapped))\n\n"
+          )
+          r(py, "coordinate helpers", marker, helpers + marker)
+          r(
+              py,
+              "geofence constructor coordinates",
+              '        for name in ("home_lat_deg", "home_lon_deg", "min_alt_m", "max_alt_m"):\n            _finite(name, getattr(self, name))\n',
+              '        self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)\n        self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)\n        self.min_alt_m = _finite("min_alt_m", self.min_alt_m)\n        self.max_alt_m = _finite("max_alt_m", self.max_alt_m)\n',
+          )
+          r(
+              py,
+              "remove duplicate geofence coordinate checks",
+              '        if not Decimal("-90") <= self.home_lat_deg <= Decimal("90"):\n            raise DroneControlError("home latitude outside -90..90")\n        if not Decimal("-180") <= self.home_lon_deg <= Decimal("180"):\n            raise DroneControlError("home longitude outside -180..180")\n',
+              '',
+          )
+          r(
+              py,
+              "geofence runtime coordinate validation",
+              '        lat_deg = _finite("latitude", lat_deg); lon_deg = _finite("longitude", lon_deg)\n',
+              '        lat_deg = _latitude("latitude", lat_deg); lon_deg = _longitude("longitude", lon_deg)\n',
+          )
+          r(
+              py,
+              "geofence prediction input validation",
+              '        horizon = _positive("horizon_seconds", horizon_seconds)\n        north = _finite("north_mps", north_mps) * horizon\n',
+              '        horizon = _positive("horizon_seconds", horizon_seconds)\n        lat_deg = _latitude("latitude", lat_deg)\n        lon_deg = _longitude("longitude", lon_deg)\n        alt_m = _finite("altitude", alt_m)\n        north = _finite("north_mps", north_mps) * horizon\n',
+          )
+          r(
+              py,
+              "geofence projected coordinate handling",
+              '        return not self.contains(lat_deg + lat_delta, lon_deg + lon_delta, alt_m + up)\n',
+              '        projected_lat = lat_deg + lat_delta\n        if not projected_lat.is_finite() or not Decimal("-90") <= projected_lat <= Decimal("90"):\n            return True\n        projected_lon_raw = lon_deg + lon_delta\n        if not projected_lon_raw.is_finite():\n            return True\n        projected_lon = _wrap_longitude(projected_lon_raw)\n        return not self.contains(projected_lat, projected_lon, alt_m + up)\n',
+          )
+          r(
+              py,
+              "mission waypoint coordinates",
+              '        self.waypoints.append(Waypoint(_finite("lat", lat_deg), _finite("lon", lon_deg),\n                                       _finite("alt", alt_m), acceptance_radius_m, hold_seconds))\n',
+              '        self.waypoints.append(Waypoint(_latitude("lat", lat_deg), _longitude("lon", lon_deg),\n                                       _finite("alt", alt_m), acceptance_radius_m, hold_seconds))\n',
+          )
+          r(
+              py,
+              "battery telemetry fail closed",
+              '        battery_fraction = _finite("battery_fraction", battery_fraction)\n        self.estimator_healthy = bool(estimator_healthy)\n        self.position_healthy = bool(position_healthy)\n        self.battery_fraction = _clamp(battery_fraction, D0, D1)\n',
+              '        battery_fraction = _finite("battery_fraction", battery_fraction)\n        if not D0 <= battery_fraction <= D1:\n            raise DroneControlError("battery_fraction must be in 0..1")\n        self.estimator_healthy = bool(estimator_healthy)\n        self.position_healthy = bool(position_healthy)\n        self.battery_fraction = battery_fraction\n',
+          )
+          r(
+              py,
+              "RTL home coordinates",
+              '        for name in ("home_lat_deg", "home_lon_deg", "home_alt_m", "return_alt_m"):\n            _finite(name, getattr(self, name))\n        self.acceptance_radius_m = _positive("acceptance_radius_m", self.acceptance_radius_m)\n',
+              '        self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)\n        self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)\n        self.home_alt_m = _finite("home_alt_m", self.home_alt_m)\n        self.return_alt_m = _finite("return_alt_m", self.return_alt_m)\n        self.acceptance_radius_m = _positive("acceptance_radius_m", self.acceptance_radius_m)\n',
+          )
+          r(
+              py,
+              "RTL current coordinates",
+              '    def target(self, lat_deg: Decimal, lon_deg: Decimal, alt_m: Decimal) -> dict[str, object]:\n        distance = Geofence(self.home_lat_deg, self.home_lon_deg, Decimal("1"),\n',
+              '    def target(self, lat_deg: Decimal, lon_deg: Decimal, alt_m: Decimal) -> dict[str, object]:\n        lat_deg = _latitude("lat_deg", lat_deg)\n        lon_deg = _longitude("lon_deg", lon_deg)\n        distance = Geofence(self.home_lat_deg, self.home_lon_deg, Decimal("1"),\n',
+          )
+          r(
+              py,
+              "MAVLink float32 range",
+              'def _f32(name: str, value: Decimal) -> float:\n    value = _finite(name, value)\n    f = float(value)\n    if not math.isfinite(f):\n        raise DroneControlError(f"{name} cannot be represented as float32")\n    return f\n',
+              'def _f32(name: str, value: Decimal) -> float:\n    value = _finite(name, value)\n    f = float(value)\n    if not math.isfinite(f):\n        raise DroneControlError(f"{name} cannot be represented as float32")\n    try:\n        packed = struct.pack("<f", f)\n    except (OverflowError, struct.error) as exc:\n        raise DroneControlError(f"{name} cannot be represented as float32") from exc\n    f32 = struct.unpack("<f", packed)[0]\n    if not math.isfinite(f32):\n        raise DroneControlError(f"{name} cannot be represented as float32")\n    return f32\n',
+          )
+          r(
+              py,
+              "link sequence baseline",
+              '        if self.last_sequence is not None:\n            delta = (seq - self.last_sequence) & 0xFF\n            if delta == 0:\n                self.duplicates += 1\n            elif 1 < delta < 128:\n                self.lost += delta - 1\n            elif delta >= 128:\n                self.out_of_order += 1\n        self.last_sequence = seq\n',
+              '        if self.last_sequence is None:\n            self.last_sequence = seq\n            return\n        delta = (seq - self.last_sequence) & 0xFF\n        if delta == 0:\n            self.duplicates += 1\n        elif delta < 128:\n            if delta > 1:\n                self.lost += delta - 1\n            self.last_sequence = seq\n        else:\n            self.out_of_order += 1\n',
+          )
 
           go = "implementations/go/cmd/saga-go/drone_control.go"
-          replace_once(go, '''func droneWrapPi(v float64) float64                   { return math.Atan2(math.Sin(v), math.Cos(v)) }
-          func droneAngleError(target, current float64) float64 { return droneWrapPi(target - current) }
-          func droneList3(v Value, name string) ([3]float64, error) {
-          ''', '''func droneWrapPi(v float64) float64                   { return math.Atan2(math.Sin(v), math.Cos(v)) }
-          func droneAngleError(target, current float64) float64 { return droneWrapPi(target - current) }
-          func validDroneLatitude(v float64) bool { return finiteFloat(v) && v >= -90 && v <= 90 }
-          func validDroneLongitude(v float64) bool { return finiteFloat(v) && v >= -180 && v <= 180 }
-          func validateDroneCoordinate(lat, lon float64) error {
-              if !validDroneLatitude(lat) {
-                  return fmt.Errorf("latitude must be in -90..90")
-              }
-              if !validDroneLongitude(lon) {
-                  return fmt.Errorf("longitude must be in -180..180")
-              }
-              return nil
-          }
-          func wrapDroneLongitude(v float64) float64 {
-              return math.Mod(math.Mod(v+180, 360)+360, 360) - 180
-          }
-          func droneList3(v Value, name string) ([3]float64, error) {
-          ''')
-
-          replace_once(go, '''func (g *droneGeofence) predict(lat, lon, alt, north, east, up, horizon float64) bool {
-              const r = 6371008.8
-              lat2 := lat + (north*horizon/r)*180/math.Pi
-              cl := math.Max(1e-9, math.Abs(math.Cos(lat*math.Pi/180)))
-              lon2 := lon + (east*horizon/r)*180/math.Pi/cl
-              return !g.contains(lat2, lon2, alt+up*horizon)
-          }
-          ''', '''func (g *droneGeofence) predict(lat, lon, alt, north, east, up, horizon float64) bool {
-              const r = 6371008.8
-              lat2 := lat + (north*horizon/r)*180/math.Pi
-              if !validDroneLatitude(lat2) {
-                  return true
-              }
-              cl := math.Max(1e-9, math.Abs(math.Cos(lat*math.Pi/180)))
-              lon2 := wrapDroneLongitude(lon + (east*horizon/r)*180/math.Pi/cl)
-              return !g.contains(lat2, lon2, alt+up*horizon)
-          }
-          ''')
-
-          replace_once(go, '''func (r *droneRTLPlanner) targetJSON(lat, lon, alt float64) (string, error) {
-              if r.Acceptance <= 0 || r.ReturnAlt < r.HomeAlt {
-                  return "", fmt.Errorf("invalid RTL planner")
-              }
-          ''', '''func (r *droneRTLPlanner) targetJSON(lat, lon, alt float64) (string, error) {
-              if r.Acceptance <= 0 || r.ReturnAlt < r.HomeAlt {
-                  return "", fmt.Errorf("invalid RTL planner")
-              }
-              if err := validateDroneCoordinate(r.HomeLat, r.HomeLon); err != nil {
-                  return "", fmt.Errorf("invalid RTL home coordinate: %w", err)
-              }
-              if err := validateDroneCoordinate(lat, lon); err != nil {
-                  return "", err
-              }
-              if !finiteFloat(alt) {
-                  return "", fmt.Errorf("altitude must be finite")
-              }
-          ''')
-
-          replace_once(go, '''func mavlinkHeartbeat(seq, sysid, compid, vehicleType, autopilot, baseMode, customMode, status int) ([]byte, error) {
-              payload := make([]byte, 9)
-          ''', '''func mavlinkHeartbeat(seq, sysid, compid, vehicleType, autopilot, baseMode, customMode, status int) ([]byte, error) {
-              if vehicleType < 0 || vehicleType > 255 || autopilot < 0 || autopilot > 255 || baseMode < 0 || baseMode > 255 || status < 0 || status > 255 || customMode < 0 || uint64(customMode) > math.MaxUint32 {
-                  return nil, fmt.Errorf("invalid MAVLink HEARTBEAT field")
-              }
-              payload := make([]byte, 9)
-          ''')
-
-          replace_once(go, '''\tcase "geofence":
-          \t\tv := make([]float64, 5)
-          \t\tfor j := range v {
-          \t\t\tq, e := num(j, "geofence parameter")
-          \t\t\tif e != nil {
-          \t\t\t\treturn fail(e)
-          \t\t\t}
-          \t\t\tv[j] = q
-          \t\t}
-          \t\tif v[2] <= 0 || v[3] >= v[4] {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\treturn &droneGeofence{v[0], v[1], v[2], v[3], v[4]}, nil
-          ''', '''\tcase "geofence":
-          \t\tv := make([]float64, 5)
-          \t\tfor j := range v {
-          \t\t\tq, e := num(j, "geofence parameter")
-          \t\t\tif e != nil {
-          \t\t\t\treturn fail(e)
-          \t\t\t}
-          \t\t\tv[j] = q
-          \t\t}
-          \t\tif err := validateDroneCoordinate(v[0], v[1]); err != nil {
-          \t\t\treturn fail(err)
-          \t\t}
-          \t\tif v[2] <= 0 || v[3] >= v[4] {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\treturn &droneGeofence{v[0], v[1], v[2], v[3], v[4]}, nil
-          ''')
-
-          replace_once(go, '''\tcase "geofence_contains":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tla, e := num(1, "lat")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tlo, _ := num(2, "lon")
-          \t\tal, _ := num(3, "alt")
-          \t\treturn g.contains(la, lo, al), nil
-          ''', '''\tcase "geofence_contains":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tla, e := num(1, "lat")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tlo, e := num(2, "lon")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tal, e := num(3, "alt")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif e = validateDroneCoordinate(la, lo); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\treturn g.contains(la, lo, al), nil
-          ''')
-
-          replace_once(go, '''\tcase "geofence_distance_m":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tla, _ := num(1, "lat")
-          \t\tlo, _ := num(2, "lon")
-          \t\treturn machineNumberFromFloat(g.distance(la, lo)), nil
-          ''', '''\tcase "geofence_distance_m":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tla, e := num(1, "lat")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tlo, e := num(2, "lon")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif e = validateDroneCoordinate(la, lo); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\treturn machineNumberFromFloat(g.distance(la, lo)), nil
-          ''')
-
-          replace_once(go, '''\tcase "geofence_predict_breach":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tv := make([]float64, 7)
-          \t\tfor j := range v {
-          \t\t\tq, e := num(j+1, "prediction")
-          \t\t\tif e != nil {
-          \t\t\t\treturn fail(e)
-          \t\t\t}
-          \t\t\tv[j] = q
-          \t\t}
-          \t\tif v[6] <= 0 {
-          ''', '''\tcase "geofence_predict_breach":
-          \t\tg, ok := args[0].(*droneGeofence)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid geofence"))
-          \t\t}
-          \t\tv := make([]float64, 7)
-          \t\tfor j := range v {
-          \t\t\tq, e := num(j+1, "prediction")
-          \t\t\tif e != nil {
-          \t\t\t\treturn fail(e)
-          \t\t\t}
-          \t\t\tv[j] = q
-          \t\t}
-          \t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif v[6] <= 0 {
-          ''')
-
-          replace_once(go, '''\t\tif v[3] <= 0 || v[4] < 0 {
-          \t\t\treturn fail(fmt.Errorf("invalid waypoint radius/hold"))
-          \t\t}
-          \t\tm.Waypoints = append(m.Waypoints, droneWaypoint{v[0], v[1], v[2], v[3], v[4]})
-          ''', '''\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif v[3] <= 0 || v[4] < 0 {
-          \t\t\treturn fail(fmt.Errorf("invalid waypoint radius/hold"))
-          \t\t}
-          \t\tm.Waypoints = append(m.Waypoints, droneWaypoint{v[0], v[1], v[2], v[3], v[4]})
-          ''')
-
-          replace_once(go, '''\t\tif v[3] <= 0 {
-          \t\t\treturn fail(fmt.Errorf("dt must be > 0"))
-          \t\t}
-          \t\treturn m.update(v[0], v[1], v[2], v[3]), nil
-          ''', '''\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif v[3] <= 0 {
-          \t\t\treturn fail(fmt.Errorf("dt must be > 0"))
-          \t\t}
-          \t\treturn m.update(v[0], v[1], v[2], v[3]), nil
-          ''')
-
-          replace_once(go, '''\tcase "health_update":
-          \t\tm, ok := args[0].(*droneFlightManager)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid flight manager"))
-          \t\t}
-          \t\teh, _ := parseMachineBool(args[1], "estimator")
-          \t\tph, _ := parseMachineBool(args[2], "position")
-          \t\tbf, e := num(3, "battery")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\trc, _ := parseMachineBool(args[4], "rc")
-          \t\tdl, _ := parseMachineBool(args[5], "data")
-          \t\ths, _ := parseMachineBool(args[6], "home")
-          \t\tm.EstimatorHealthy = eh
-          \t\tm.PositionHealthy = ph
-          \t\tm.BatteryFraction = clampFloat(bf, 0, 1)
-          \t\tm.RCLink = rc
-          \t\tm.DataLink = dl
-          \t\tm.HomeSet = hs
-          \t\treturn nil, nil
-          ''', '''\tcase "health_update":
-          \t\tm, ok := args[0].(*droneFlightManager)
-          \t\tif !ok {
-          \t\t\treturn fail(fmt.Errorf("invalid flight manager"))
-          \t\t}
-          \t\teh, e := parseMachineBool(args[1], "estimator")
-          \t\tif e != nil { return fail(e) }
-          \t\tph, e := parseMachineBool(args[2], "position")
-          \t\tif e != nil { return fail(e) }
-          \t\tbf, e := num(3, "battery")
-          \t\tif e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif bf < 0 || bf > 1 {
-          \t\t\treturn fail(fmt.Errorf("battery_fraction must be in 0..1"))
-          \t\t}
-          \t\trc, e := parseMachineBool(args[4], "rc")
-          \t\tif e != nil { return fail(e) }
-          \t\tdl, e := parseMachineBool(args[5], "data")
-          \t\tif e != nil { return fail(e) }
-          \t\ths, e := parseMachineBool(args[6], "home")
-          \t\tif e != nil { return fail(e) }
-          \t\tm.EstimatorHealthy = eh
-          \t\tm.PositionHealthy = ph
-          \t\tm.BatteryFraction = bf
-          \t\tm.RCLink = rc
-          \t\tm.DataLink = dl
-          \t\tm.HomeSet = hs
-          \t\treturn nil, nil
-          ''')
-
-          replace_once(go, '''\t\tif v[4] <= 0 || v[3] < v[2] {
-          \t\t\treturn fail(fmt.Errorf("invalid RTL planner"))
-          \t\t}
-          \t\treturn &droneRTLPlanner{v[0], v[1], v[2], v[3], v[4]}, nil
-          ''', '''\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {
-          \t\t\treturn fail(e)
-          \t\t}
-          \t\tif v[4] <= 0 || v[3] < v[2] {
-          \t\t\treturn fail(fmt.Errorf("invalid RTL planner"))
-          \t\t}
-          \t\treturn &droneRTLPlanner{v[0], v[1], v[2], v[3], v[4]}, nil
-          ''')
-
-          replace_once(go, '''\t\tla, _ := num(1, "lat")
-          \t\tlo, _ := num(2, "lon")
-          \t\tal, _ := num(3, "alt")
-          \t\tq, e := r.targetJSON(la, lo, al)
-          ''', '''\t\tla, e := num(1, "lat")
-          \t\tif e != nil { return fail(e) }
-          \t\tlo, e := num(2, "lon")
-          \t\tif e != nil { return fail(e) }
-          \t\tal, e := num(3, "alt")
-          \t\tif e != nil { return fail(e) }
-          \t\tif e = validateDroneCoordinate(la, lo); e != nil { return fail(e) }
-          \t\tq, e := r.targetJSON(la, lo, al)
-          ''')
+          go_marker = 'func droneList3(v Value, name string) ([3]float64, error) {\n'
+          go_helpers = (
+              'func validDroneLatitude(v float64) bool  { return finiteFloat(v) && v >= -90 && v <= 90 }\n'
+              'func validDroneLongitude(v float64) bool { return finiteFloat(v) && v >= -180 && v <= 180 }\n'
+              'func validateDroneCoordinate(lat, lon float64) error {\n'
+              '\tif !validDroneLatitude(lat) {\n\t\treturn fmt.Errorf("latitude must be in -90..90")\n\t}\n'
+              '\tif !validDroneLongitude(lon) {\n\t\treturn fmt.Errorf("longitude must be in -180..180")\n\t}\n'
+              '\treturn nil\n}\n'
+              'func wrapDroneLongitude(v float64) float64 {\n\treturn math.Mod(math.Mod(v+180, 360)+360, 360) - 180\n}\n'
+          )
+          r(go, "Go coordinate helpers", go_marker, go_helpers + go_marker)
+          r(
+              go,
+              "Go projected coordinate handling",
+              '\tlat2 := lat + (north*horizon/r)*180/math.Pi\n\tcl := math.Max(1e-9, math.Abs(math.Cos(lat*math.Pi/180)))\n\tlon2 := lon + (east*horizon/r)*180/math.Pi/cl\n\treturn !g.contains(lat2, lon2, alt+up*horizon)\n',
+              '\tlat2 := lat + (north*horizon/r)*180/math.Pi\n\tif !validDroneLatitude(lat2) {\n\t\treturn true\n\t}\n\tcl := math.Max(1e-9, math.Abs(math.Cos(lat*math.Pi/180)))\n\tlon2 := wrapDroneLongitude(lon + (east*horizon/r)*180/math.Pi/cl)\n\tif !finiteFloat(lon2) {\n\t\treturn true\n\t}\n\treturn !g.contains(lat2, lon2, alt+up*horizon)\n',
+          )
+          r(
+              go,
+              "Go RTL direct validation",
+              '\tif r.Acceptance <= 0 || r.ReturnAlt < r.HomeAlt {\n\t\treturn "", fmt.Errorf("invalid RTL planner")\n\t}\n\tg := droneGeofence{r.HomeLat, r.HomeLon, 1, r.HomeAlt - 100000, r.HomeAlt + 100000}\n',
+              '\tif r.Acceptance <= 0 || r.ReturnAlt < r.HomeAlt {\n\t\treturn "", fmt.Errorf("invalid RTL planner")\n\t}\n\tif err := validateDroneCoordinate(r.HomeLat, r.HomeLon); err != nil {\n\t\treturn "", fmt.Errorf("invalid RTL home coordinate: %w", err)\n\t}\n\tif err := validateDroneCoordinate(lat, lon); err != nil {\n\t\treturn "", err\n\t}\n\tif !finiteFloat(alt) {\n\t\treturn "", fmt.Errorf("altitude must be finite")\n\t}\n\tg := droneGeofence{r.HomeLat, r.HomeLon, 1, r.HomeAlt - 100000, r.HomeAlt + 100000}\n',
+          )
+          r(
+              go,
+              "Go HEARTBEAT field validation",
+              'func mavlinkHeartbeat(seq, sysid, compid, vehicleType, autopilot, baseMode, customMode, status int) ([]byte, error) {\n\tpayload := make([]byte, 9)\n',
+              'func mavlinkHeartbeat(seq, sysid, compid, vehicleType, autopilot, baseMode, customMode, status int) ([]byte, error) {\n\tif vehicleType < 0 || vehicleType > 255 || autopilot < 0 || autopilot > 255 || baseMode < 0 || baseMode > 255 || status < 0 || status > 255 || customMode < 0 || uint64(customMode) > math.MaxUint32 {\n\t\treturn nil, fmt.Errorf("invalid MAVLink HEARTBEAT field")\n\t}\n\tpayload := make([]byte, 9)\n',
+          )
+          r(
+              go,
+              "Go geofence home validation",
+              '\t\tif v[2] <= 0 || v[3] >= v[4] {\n\t\t\treturn fail(fmt.Errorf("invalid geofence"))\n\t\t}\n\t\treturn &droneGeofence{v[0], v[1], v[2], v[3], v[4]}, nil\n',
+              '\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif v[2] <= 0 || v[3] >= v[4] {\n\t\t\treturn fail(fmt.Errorf("invalid geofence"))\n\t\t}\n\t\treturn &droneGeofence{v[0], v[1], v[2], v[3], v[4]}, nil\n',
+          )
+          r(
+              go,
+              "Go geofence contains validation",
+              '\t\tlo, _ := num(2, "lon")\n\t\tal, _ := num(3, "alt")\n\t\treturn g.contains(la, lo, al), nil\n',
+              '\t\tlo, e := num(2, "lon")\n\t\tif e != nil { return fail(e) }\n\t\tal, e := num(3, "alt")\n\t\tif e != nil { return fail(e) }\n\t\tif e = validateDroneCoordinate(la, lo); e != nil { return fail(e) }\n\t\treturn g.contains(la, lo, al), nil\n',
+          )
+          r(
+              go,
+              "Go geofence distance validation",
+              '\t\tla, _ := num(1, "lat")\n\t\tlo, _ := num(2, "lon")\n\t\treturn machineNumberFromFloat(g.distance(la, lo)), nil\n',
+              '\t\tla, e := num(1, "lat")\n\t\tif e != nil { return fail(e) }\n\t\tlo, e := num(2, "lon")\n\t\tif e != nil { return fail(e) }\n\t\tif e = validateDroneCoordinate(la, lo); e != nil { return fail(e) }\n\t\treturn machineNumberFromFloat(g.distance(la, lo)), nil\n',
+          )
+          r(
+              go,
+              "Go geofence prediction validation",
+              '\t\tif v[6] <= 0 {\n\t\t\treturn fail(fmt.Errorf("horizon must be > 0"))\n\t\t}\n\t\treturn g.predict(v[0], v[1], v[2], v[3], v[4], v[5], v[6]), nil\n',
+              '\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif v[6] <= 0 {\n\t\t\treturn fail(fmt.Errorf("horizon must be > 0"))\n\t\t}\n\t\treturn g.predict(v[0], v[1], v[2], v[3], v[4], v[5], v[6]), nil\n',
+          )
+          r(
+              go,
+              "Go mission waypoint validation",
+              '\t\tif v[3] <= 0 || v[4] < 0 {\n\t\t\treturn fail(fmt.Errorf("invalid waypoint radius/hold"))\n\t\t}\n\t\tm.Waypoints = append(m.Waypoints, droneWaypoint{v[0], v[1], v[2], v[3], v[4]})\n',
+              '\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif v[3] <= 0 || v[4] < 0 {\n\t\t\treturn fail(fmt.Errorf("invalid waypoint radius/hold"))\n\t\t}\n\t\tm.Waypoints = append(m.Waypoints, droneWaypoint{v[0], v[1], v[2], v[3], v[4]})\n',
+          )
+          r(
+              go,
+              "Go mission current coordinate validation",
+              '\t\tif v[3] <= 0 {\n\t\t\treturn fail(fmt.Errorf("dt must be > 0"))\n\t\t}\n\t\treturn m.update(v[0], v[1], v[2], v[3]), nil\n',
+              '\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif v[3] <= 0 {\n\t\t\treturn fail(fmt.Errorf("dt must be > 0"))\n\t\t}\n\t\treturn m.update(v[0], v[1], v[2], v[3]), nil\n',
+          )
+          r(
+              go,
+              "Go flight health validation",
+              '\t\teh, _ := parseMachineBool(args[1], "estimator")\n\t\tph, _ := parseMachineBool(args[2], "position")\n\t\tbf, e := num(3, "battery")\n\t\tif e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\trc, _ := parseMachineBool(args[4], "rc")\n\t\tdl, _ := parseMachineBool(args[5], "data")\n\t\ths, _ := parseMachineBool(args[6], "home")\n\t\tm.EstimatorHealthy = eh\n\t\tm.PositionHealthy = ph\n\t\tm.BatteryFraction = clampFloat(bf, 0, 1)\n',
+              '\t\teh, e := parseMachineBool(args[1], "estimator")\n\t\tif e != nil { return fail(e) }\n\t\tph, e := parseMachineBool(args[2], "position")\n\t\tif e != nil { return fail(e) }\n\t\tbf, e := num(3, "battery")\n\t\tif e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif bf < 0 || bf > 1 {\n\t\t\treturn fail(fmt.Errorf("battery_fraction must be in 0..1"))\n\t\t}\n\t\trc, e := parseMachineBool(args[4], "rc")\n\t\tif e != nil { return fail(e) }\n\t\tdl, e := parseMachineBool(args[5], "data")\n\t\tif e != nil { return fail(e) }\n\t\ths, e := parseMachineBool(args[6], "home")\n\t\tif e != nil { return fail(e) }\n\t\tm.EstimatorHealthy = eh\n\t\tm.PositionHealthy = ph\n\t\tm.BatteryFraction = bf\n',
+          )
+          r(
+              go,
+              "Go prearm bool validation",
+              '\t\tq, _ := parseMachineBool(args[1], "require_position")\n\t\treturn m.prearm(q), nil\n',
+              '\t\tq, e := parseMachineBool(args[1], "require_position")\n\t\tif e != nil { return fail(e) }\n\t\treturn m.prearm(q), nil\n',
+          )
+          r(
+              go,
+              "Go arm bool validation",
+              '\t\tq, _ := parseMachineBool(args[1], "require_position")\n\t\tif e := m.arm(q); e != nil {\n',
+              '\t\tq, e := parseMachineBool(args[1], "require_position")\n\t\tif e != nil { return fail(e) }\n\t\tif e := m.arm(q); e != nil {\n',
+          )
+          r(
+              go,
+              "Go RTL home validation",
+              '\t\tif v[4] <= 0 || v[3] < v[2] {\n\t\t\treturn fail(fmt.Errorf("invalid RTL planner"))\n\t\t}\n\t\treturn &droneRTLPlanner{v[0], v[1], v[2], v[3], v[4]}, nil\n',
+              '\t\tif e := validateDroneCoordinate(v[0], v[1]); e != nil {\n\t\t\treturn fail(e)\n\t\t}\n\t\tif v[4] <= 0 || v[3] < v[2] {\n\t\t\treturn fail(fmt.Errorf("invalid RTL planner"))\n\t\t}\n\t\treturn &droneRTLPlanner{v[0], v[1], v[2], v[3], v[4]}, nil\n',
+          )
+          r(
+              go,
+              "Go RTL current validation",
+              '\t\tla, _ := num(1, "lat")\n\t\tlo, _ := num(2, "lon")\n\t\tal, _ := num(3, "alt")\n\t\tq, e := r.targetJSON(la, lo, al)\n',
+              '\t\tla, e := num(1, "lat")\n\t\tif e != nil { return fail(e) }\n\t\tlo, e := num(2, "lon")\n\t\tif e != nil { return fail(e) }\n\t\tal, e := num(3, "alt")\n\t\tif e != nil { return fail(e) }\n\t\tif e = validateDroneCoordinate(la, lo); e != nil { return fail(e) }\n\t\tq, e := r.targetJSON(la, lo, al)\n',
+          )
           PY
-
       - name: Format Go hardening changes
         run: gofmt -w implementations/go/cmd/saga-go/drone_control.go implementations/go/cmd/saga-go/drone_autonomy_041.go implementations/go/cmd/saga-go/machine_drone_focus_053_test.go
       - name: Install Saga
