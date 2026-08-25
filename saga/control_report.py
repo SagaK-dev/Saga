@@ -136,8 +136,9 @@ def _check_results(functions: list[dict[str, Any]], issues: list[dict[str, Any]]
     results: list[dict[str, str]] = []
 
     for key, label, failure_codes in _CHECKS:
+        failed = bool(codes & failure_codes)
         if key == "timing-contract":
-            if codes & failure_codes:
+            if failed:
                 status = "fail"
             elif not ticks:
                 status = "not-applicable"
@@ -147,10 +148,12 @@ def _check_results(functions: list[dict[str, Any]], issues: list[dict[str, Any]]
                 status = "partial"
             else:
                 status = "not-declared"
+        elif failed:
+            status = "fail"
         elif not functions:
             status = "not-applicable"
         else:
-            status = "fail" if codes & failure_codes else "pass"
+            status = "pass"
         results.append({"id": key, "label": label, "status": status})
 
     return results
