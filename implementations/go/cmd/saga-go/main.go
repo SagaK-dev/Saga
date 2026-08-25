@@ -38,7 +38,8 @@ func runCLI(args []string) int {
 	}
 	switch args[0] {
 	case "--help", "-h", "help":
-		fmt.Println(`Saga — self-hosted native programming language
+		fmt.Println(`Saga — native machine-control, robotics, and drone programming language
+Readable control code with explicit hardware authority; self-hosted native runtime.
 
 Usage: saga <command> [options]
 
