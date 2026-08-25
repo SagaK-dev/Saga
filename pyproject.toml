@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "saga-language"
-version = "0.52.0"
-description = "Reference implementation of the readable, exact-number, capability-secured Saga programming language"
+version = "0.53.0"
+description = "Machine-control, robotics, and drone programming language with readable control code and explicit hardware authority"
 readme = "README.md"
 requires-python = ">=3.13"
 license = {text = "MIT"}
 authors = [{name = "Saga Language Project"}]
-keywords = ["programming-language", "compiler", "interpreter", "systems-programming", "machine-control", "exact-arithmetic", "capability-security"]
+keywords = ["programming-language", "compiler", "machine-control", "robotics", "drone-control", "autonomous-systems", "real-time-control", "mavlink", "can", "ethercat", "systems-programming", "capability-security"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",
