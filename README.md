@@ -7,12 +7,13 @@ The project includes a Python reference implementation, an independent Go implem
 ## Project status
 
 - **Latest frozen release:** Saga 0.50.0 — Production GA Control Hardening
+- **Current development version:** Saga 0.52.0 — Generic Abstraction Foundations
 - **Frozen release branch:** `release/0.50.0-production-ga`
 - **Development branch:** `main`
 - **License:** MIT
 - **Python requirement:** 3.13+
 
-`release/source-manifest-0.50.0.json` describes the frozen 0.50.0 source candidate. Maintenance work on `main` may intentionally diverge from that historical manifest; a later release must create new source-bound evidence instead of rewriting old release evidence.
+`release/source-manifest-0.50.0.json` describes the frozen 0.50.0 source candidate. Saga 0.52.0 on `main` is a development line, not a frozen GA release. Maintenance work on `main` may intentionally diverge from the historical manifest; a later frozen release must create new source-bound evidence instead of rewriting old release evidence.
 
 The **Production GA** designation applies to the Saga 0.50 language/toolchain control profile. It is **not** a functional-safety certificate for a physical machine. Target-specific hard real-time, WCET, physical HIL, fieldbus, motor/drive, E-stop/STO/interlock, watchdog, SIL/PL, and other regulatory evidence remain deployment-specific.
 

@@ -261,7 +261,11 @@ def _unify_invariant(pattern: Type, actual: Type, mapping: dict[str, Type]) -> b
     """
     if pattern.name == "typeapply" and pattern.args:
         constructor, *arguments = pattern.args
-        if not is_typevar(constructor) or len(arguments) != len(actual.args):
+        if (
+            not is_typevar(constructor)
+            or actual.name == "fn"
+            or len(arguments) != len(actual.args)
+        ):
             return False
         name = typevar_name(constructor)
         candidate = TYPECTOR(actual.name)
@@ -297,7 +301,11 @@ def _unify_invariant(pattern: Type, actual: Type, mapping: dict[str, Type]) -> b
 def unify(pattern: Type, actual: Type, mapping: dict[str, Type]) -> bool:
     if pattern.name == "typeapply" and pattern.args:
         constructor, *arguments = pattern.args
-        if not is_typevar(constructor) or len(arguments) != len(actual.args):
+        if (
+            not is_typevar(constructor)
+            or actual.name == "fn"
+            or len(arguments) != len(actual.args)
+        ):
             return False
         name = typevar_name(constructor)
         candidate = TYPECTOR(actual.name)
