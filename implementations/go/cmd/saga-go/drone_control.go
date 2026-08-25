@@ -60,6 +60,20 @@ type droneRTLPlanner struct {
 
 func droneWrapPi(v float64) float64                   { return math.Atan2(math.Sin(v), math.Cos(v)) }
 func droneAngleError(target, current float64) float64 { return droneWrapPi(target - current) }
+func validDroneLatitude(v float64) bool               { return finiteFloat(v) && v >= -90 && v <= 90 }
+func validDroneLongitude(v float64) bool              { return finiteFloat(v) && v >= -180 && v <= 180 }
+func validateDroneCoordinate(lat, lon float64) error {
+	if !validDroneLatitude(lat) {
+		return fmt.Errorf("latitude must be in -90..90")
+	}
+	if !validDroneLongitude(lon) {
+		return fmt.Errorf("longitude must be in -180..180")
+	}
+	return nil
+}
+func wrapDroneLongitude(v float64) float64 {
+	return math.Mod(math.Mod(v+180, 360)+360, 360) - 180
+}
 func droneList3(v Value, name string) ([3]float64, error) {
 	var out [3]float64
 	list, ok := v.([]Value)
@@ -297,8 +311,14 @@ func (g *droneGeofence) contains(lat, lon, alt float64) bool {
 func (g *droneGeofence) predict(lat, lon, alt, north, east, up, horizon float64) bool {
 	const r = 6371008.8
 	lat2 := lat + (north*horizon/r)*180/math.Pi
+	if !validDroneLatitude(lat2) {
+		return true
+	}
 	cl := math.Max(1e-9, math.Abs(math.Cos(lat*math.Pi/180)))
-	lon2 := lon + (east*horizon/r)*180/math.Pi/cl
+	lon2 := wrapDroneLongitude(lon + (east*horizon/r)*180/math.Pi/cl)
+	if !finiteFloat(lon2) {
+		return true
+	}
 	return !g.contains(lat2, lon2, alt+up*horizon)
 }
 func (m *droneMission) update(lat, lon, alt, dt float64) string {
@@ -411,6 +431,15 @@ func (m *droneFlightManager) controlAllowed() bool { return m.allowed() }
 func (r *droneRTLPlanner) targetJSON(lat, lon, alt float64) (string, error) {
 	if r.Acceptance <= 0 || r.ReturnAlt < r.HomeAlt {
 		return "", fmt.Errorf("invalid RTL planner")
+	}
+	if err := validateDroneCoordinate(r.HomeLat, r.HomeLon); err != nil {
+		return "", fmt.Errorf("invalid RTL home coordinate: %w", err)
+	}
+	if err := validateDroneCoordinate(lat, lon); err != nil {
+		return "", err
+	}
+	if !finiteFloat(alt) {
+		return "", fmt.Errorf("altitude must be finite")
 	}
 	g := droneGeofence{HomeLat: r.HomeLat, HomeLon: r.HomeLon, Radius: 1, MinAlt: r.HomeAlt - 100000, MaxAlt: r.HomeAlt + 100000}
 	d := g.distance(lat, lon)
@@ -637,6 +666,9 @@ func mavlinkVerify(frame []byte, crcExtra int, key []byte, minTimestamp int64) (
 	return info, nil
 }
 func mavlinkHeartbeat(seq, sysid, compid, vehicleType, autopilot, baseMode, customMode, status int) ([]byte, error) {
+	if vehicleType < 0 || vehicleType > 255 || autopilot < 0 || autopilot > 255 || baseMode < 0 || baseMode > 255 || status < 0 || status > 255 || customMode < 0 || uint64(customMode) > math.MaxUint32 {
+		return nil, fmt.Errorf("invalid MAVLink HEARTBEAT field")
+	}
 	payload := make([]byte, 9)
 	binary.LittleEndian.PutUint32(payload[:4], uint32(customMode))
 	payload[4] = byte(vehicleType)
@@ -1138,6 +1170,9 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 			}
 			v[j] = q
 		}
+		if e := validateDroneCoordinate(v[0], v[1]); e != nil {
+			return fail(e)
+		}
 		if v[2] <= 0 || v[3] >= v[4] {
 			return fail(fmt.Errorf("invalid geofence"))
 		}
@@ -1151,16 +1186,34 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 		if e != nil {
 			return fail(e)
 		}
-		lo, _ := num(2, "lon")
-		al, _ := num(3, "alt")
+		lo, e := num(2, "lon")
+		if e != nil {
+			return fail(e)
+		}
+		al, e := num(3, "alt")
+		if e != nil {
+			return fail(e)
+		}
+		if e = validateDroneCoordinate(la, lo); e != nil {
+			return fail(e)
+		}
 		return g.contains(la, lo, al), nil
 	case "geofence_distance_m":
 		g, ok := args[0].(*droneGeofence)
 		if !ok {
 			return fail(fmt.Errorf("invalid geofence"))
 		}
-		la, _ := num(1, "lat")
-		lo, _ := num(2, "lon")
+		la, e := num(1, "lat")
+		if e != nil {
+			return fail(e)
+		}
+		lo, e := num(2, "lon")
+		if e != nil {
+			return fail(e)
+		}
+		if e = validateDroneCoordinate(la, lo); e != nil {
+			return fail(e)
+		}
 		return machineNumberFromFloat(g.distance(la, lo)), nil
 	case "geofence_predict_breach":
 		g, ok := args[0].(*droneGeofence)
@@ -1174,6 +1227,9 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 				return fail(e)
 			}
 			v[j] = q
+		}
+		if e := validateDroneCoordinate(v[0], v[1]); e != nil {
+			return fail(e)
 		}
 		if v[6] <= 0 {
 			return fail(fmt.Errorf("horizon must be > 0"))
@@ -1193,6 +1249,9 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 				return fail(e)
 			}
 			v[j] = q
+		}
+		if e := validateDroneCoordinate(v[0], v[1]); e != nil {
+			return fail(e)
 		}
 		if v[3] <= 0 || v[4] < 0 {
 			return fail(fmt.Errorf("invalid waypoint radius/hold"))
@@ -1221,6 +1280,9 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 				return fail(e)
 			}
 			v[j] = q
+		}
+		if e := validateDroneCoordinate(v[0], v[1]); e != nil {
+			return fail(e)
 		}
 		if v[3] <= 0 {
 			return fail(fmt.Errorf("dt must be > 0"))
@@ -1257,18 +1319,36 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 		if !ok {
 			return fail(fmt.Errorf("invalid flight manager"))
 		}
-		eh, _ := parseMachineBool(args[1], "estimator")
-		ph, _ := parseMachineBool(args[2], "position")
+		eh, e := parseMachineBool(args[1], "estimator")
+		if e != nil {
+			return fail(e)
+		}
+		ph, e := parseMachineBool(args[2], "position")
+		if e != nil {
+			return fail(e)
+		}
 		bf, e := num(3, "battery")
 		if e != nil {
 			return fail(e)
 		}
-		rc, _ := parseMachineBool(args[4], "rc")
-		dl, _ := parseMachineBool(args[5], "data")
-		hs, _ := parseMachineBool(args[6], "home")
+		if bf < 0 || bf > 1 {
+			return fail(fmt.Errorf("battery_fraction must be in 0..1"))
+		}
+		rc, e := parseMachineBool(args[4], "rc")
+		if e != nil {
+			return fail(e)
+		}
+		dl, e := parseMachineBool(args[5], "data")
+		if e != nil {
+			return fail(e)
+		}
+		hs, e := parseMachineBool(args[6], "home")
+		if e != nil {
+			return fail(e)
+		}
 		m.EstimatorHealthy = eh
 		m.PositionHealthy = ph
-		m.BatteryFraction = clampFloat(bf, 0, 1)
+		m.BatteryFraction = bf
 		m.RCLink = rc
 		m.DataLink = dl
 		m.HomeSet = hs
@@ -1278,14 +1358,20 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 		if !ok {
 			return fail(fmt.Errorf("invalid flight manager"))
 		}
-		q, _ := parseMachineBool(args[1], "require_position")
+		q, e := parseMachineBool(args[1], "require_position")
+		if e != nil {
+			return fail(e)
+		}
 		return m.prearm(q), nil
 	case "arm":
 		m, ok := args[0].(*droneFlightManager)
 		if !ok {
 			return fail(fmt.Errorf("invalid flight manager"))
 		}
-		q, _ := parseMachineBool(args[1], "require_position")
+		q, e := parseMachineBool(args[1], "require_position")
+		if e != nil {
+			return fail(e)
+		}
 		if e := m.arm(q); e != nil {
 			return fail(e)
 		}
@@ -1345,6 +1431,9 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 			}
 			v[j] = q
 		}
+		if e := validateDroneCoordinate(v[0], v[1]); e != nil {
+			return fail(e)
+		}
 		if v[4] <= 0 || v[3] < v[2] {
 			return fail(fmt.Errorf("invalid RTL planner"))
 		}
@@ -1354,9 +1443,21 @@ func (i *Interpreter) callDroneNative(name string, args []Value, t Token) (Value
 		if !ok {
 			return fail(fmt.Errorf("invalid RTL planner"))
 		}
-		la, _ := num(1, "lat")
-		lo, _ := num(2, "lon")
-		al, _ := num(3, "alt")
+		la, e := num(1, "lat")
+		if e != nil {
+			return fail(e)
+		}
+		lo, e := num(2, "lon")
+		if e != nil {
+			return fail(e)
+		}
+		al, e := num(3, "alt")
+		if e != nil {
+			return fail(e)
+		}
+		if e = validateDroneCoordinate(la, lo); e != nil {
+			return fail(e)
+		}
 		q, e := r.targetJSON(la, lo, al)
 		if e != nil {
 			return fail(e)

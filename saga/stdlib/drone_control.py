@@ -35,6 +35,28 @@ def _positive(name: str, value: Decimal) -> Decimal:
     return value
 
 
+def _latitude(name: str, value: Decimal) -> Decimal:
+    value = _finite(name, value)
+    if not Decimal("-90") <= value <= Decimal("90"):
+        raise DroneControlError(f"{name} must be in -90..90")
+    return value
+
+
+def _longitude(name: str, value: Decimal) -> Decimal:
+    value = _finite(name, value)
+    if not Decimal("-180") <= value <= Decimal("180"):
+        raise DroneControlError(f"{name} must be in -180..180")
+    return value
+
+
+def _wrap_longitude(value: Decimal) -> Decimal:
+    value = _finite("longitude", value)
+    wrapped = (float(value) + 180.0) % 360.0 - 180.0
+    if not math.isfinite(wrapped):
+        raise DroneControlError("longitude projection is not finite")
+    return Decimal(str(wrapped))
+
+
 def _clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
     return min(max(value, low), high)
 
@@ -315,18 +337,16 @@ class Geofence:
     max_alt_m: Decimal
 
     def __post_init__(self) -> None:
-        for name in ("home_lat_deg", "home_lon_deg", "min_alt_m", "max_alt_m"):
-            _finite(name, getattr(self, name))
+        self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)
+        self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)
+        self.min_alt_m = _finite("min_alt_m", self.min_alt_m)
+        self.max_alt_m = _finite("max_alt_m", self.max_alt_m)
         self.radius_m = _positive("radius_m", self.radius_m)
         if self.min_alt_m >= self.max_alt_m:
             raise DroneControlError("min_alt_m must be smaller than max_alt_m")
-        if not Decimal("-90") <= self.home_lat_deg <= Decimal("90"):
-            raise DroneControlError("home latitude outside -90..90")
-        if not Decimal("-180") <= self.home_lon_deg <= Decimal("180"):
-            raise DroneControlError("home longitude outside -180..180")
 
     def horizontal_distance_m(self, lat_deg: Decimal, lon_deg: Decimal) -> Decimal:
-        lat_deg = _finite("latitude", lat_deg); lon_deg = _finite("longitude", lon_deg)
+        lat_deg = _latitude("latitude", lat_deg); lon_deg = _longitude("longitude", lon_deg)
         p1, p2 = math.radians(float(self.home_lat_deg)), math.radians(float(lat_deg))
         dp = p2 - p1
         dl = math.radians(float(lon_deg - self.home_lon_deg))
@@ -341,13 +361,23 @@ class Geofence:
                        north_mps: Decimal, east_mps: Decimal, up_mps: Decimal,
                        horizon_seconds: Decimal) -> bool:
         horizon = _positive("horizon_seconds", horizon_seconds)
+        lat_deg = _latitude("latitude", lat_deg)
+        lon_deg = _longitude("longitude", lon_deg)
+        alt_m = _finite("altitude", alt_m)
         north = _finite("north_mps", north_mps) * horizon
         east = _finite("east_mps", east_mps) * horizon
         up = _finite("up_mps", up_mps) * horizon
         lat_delta = Decimal(str(math.degrees(float(north / EARTH_RADIUS_M))))
         cos_lat = max(1e-9, abs(math.cos(math.radians(float(lat_deg)))))
         lon_delta = Decimal(str(math.degrees(float(east / EARTH_RADIUS_M)) / cos_lat))
-        return not self.contains(lat_deg + lat_delta, lon_deg + lon_delta, alt_m + up)
+        projected_lat = lat_deg + lat_delta
+        if not projected_lat.is_finite() or not Decimal("-90") <= projected_lat <= Decimal("90"):
+            return True
+        projected_lon_raw = lon_deg + lon_delta
+        if not projected_lon_raw.is_finite():
+            return True
+        projected_lon = _wrap_longitude(projected_lon_raw)
+        return not self.contains(projected_lat, projected_lon, alt_m + up)
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,7 +402,7 @@ class MissionPlan:
         hold_seconds = _finite("hold_seconds", hold_seconds)
         if hold_seconds < 0:
             raise DroneControlError("hold_seconds must be >= 0")
-        self.waypoints.append(Waypoint(_finite("lat", lat_deg), _finite("lon", lon_deg),
+        self.waypoints.append(Waypoint(_latitude("lat", lat_deg), _longitude("lon", lon_deg),
                                        _finite("alt", alt_m), acceptance_radius_m, hold_seconds))
         self.complete = False
 
@@ -461,9 +491,11 @@ class FlightManager:
     def update_health(self, estimator_healthy: bool, position_healthy: bool,
                       battery_fraction: Decimal, rc_link: bool, data_link: bool, home_set: bool) -> None:
         battery_fraction = _finite("battery_fraction", battery_fraction)
+        if not D0 <= battery_fraction <= D1:
+            raise DroneControlError("battery_fraction must be in 0..1")
         self.estimator_healthy = bool(estimator_healthy)
         self.position_healthy = bool(position_healthy)
-        self.battery_fraction = _clamp(battery_fraction, D0, D1)
+        self.battery_fraction = battery_fraction
         self.rc_link = bool(rc_link); self.data_link = bool(data_link); self.home_set = bool(home_set)
 
     def prearm_reason(self, require_position: bool = True) -> str:
@@ -517,13 +549,17 @@ class RTLPlanner:
     acceptance_radius_m: Decimal = Decimal("2")
 
     def __post_init__(self) -> None:
-        for name in ("home_lat_deg", "home_lon_deg", "home_alt_m", "return_alt_m"):
-            _finite(name, getattr(self, name))
+        self.home_lat_deg = _latitude("home_lat_deg", self.home_lat_deg)
+        self.home_lon_deg = _longitude("home_lon_deg", self.home_lon_deg)
+        self.home_alt_m = _finite("home_alt_m", self.home_alt_m)
+        self.return_alt_m = _finite("return_alt_m", self.return_alt_m)
         self.acceptance_radius_m = _positive("acceptance_radius_m", self.acceptance_radius_m)
         if self.return_alt_m < self.home_alt_m:
             raise DroneControlError("return_alt_m must be >= home_alt_m")
 
     def target(self, lat_deg: Decimal, lon_deg: Decimal, alt_m: Decimal) -> dict[str, object]:
+        lat_deg = _latitude("lat_deg", lat_deg)
+        lon_deg = _longitude("lon_deg", lon_deg)
         distance = Geofence(self.home_lat_deg, self.home_lon_deg, Decimal("1"),
                             self.home_alt_m - Decimal("100000"), self.home_alt_m + Decimal("100000")).horizontal_distance_m(lat_deg, lon_deg)
         alt_m = _finite("alt_m", alt_m)
@@ -784,7 +820,14 @@ def _f32(name: str, value: Decimal) -> float:
     f = float(value)
     if not math.isfinite(f):
         raise DroneControlError(f"{name} cannot be represented as float32")
-    return f
+    try:
+        packed = struct.pack("<f", f)
+    except (OverflowError, struct.error) as exc:
+        raise DroneControlError(f"{name} cannot be represented as float32") from exc
+    f32 = struct.unpack("<f", packed)[0]
+    if not math.isfinite(f32):
+        raise DroneControlError(f"{name} cannot be represented as float32")
+    return f32
 
 
 def mavlink_set_attitude_target(sequence: int, system_id: int, component_id: int,
@@ -1175,15 +1218,18 @@ class LinkMonitor:
             self.latency_ms_ewma = latency
         else:
             self.latency_ms_ewma = self.alpha * latency + (D1-self.alpha) * self.latency_ms_ewma
-        if self.last_sequence is not None:
-            delta = (seq - self.last_sequence) & 0xFF
-            if delta == 0:
-                self.duplicates += 1
-            elif 1 < delta < 128:
+        if self.last_sequence is None:
+            self.last_sequence = seq
+            return
+        delta = (seq - self.last_sequence) & 0xFF
+        if delta == 0:
+            self.duplicates += 1
+        elif delta < 128:
+            if delta > 1:
                 self.lost += delta - 1
-            elif delta >= 128:
-                self.out_of_order += 1
-        self.last_sequence = seq
+            self.last_sequence = seq
+        else:
+            self.out_of_order += 1
 
     def stats(self) -> dict[str, object]:
         expected = self.received + self.lost
