@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -242,6 +243,22 @@ func (c *Checker) Check(stmts []Stmt) error {
 		if ci.Decl != nil && len(ci.OwnFields) == 0 && len(ci.OwnMethods) == 0 {
 			if e := c.declareMembers(ci); e != nil {
 				return e
+			}
+		}
+	}
+	for _, fi := range c.Functions {
+		if fi.Decl != nil {
+			if e := c.validateHKTSignature(fi, fi.Decl.Tok); e != nil {
+				return e
+			}
+		}
+	}
+	for _, ci := range c.Classes {
+		for _, fi := range ci.OwnMethods {
+			if fi.Decl != nil {
+				if e := c.validateHKTSignature(fi, fi.Decl.Tok); e != nil {
+					return e
+				}
 			}
 		}
 	}
@@ -676,13 +693,114 @@ func (c *Checker) resolveInheritance() error {
 	}
 	return nil
 }
+func canonicalConstraintType(r TypeRef, rename map[string]string) string {
+	name := r.Name
+	if mapped, ok := rename[name]; ok {
+		name = mapped
+	}
+	if len(r.Args) == 0 {
+		return name
+	}
+	args := make([]string, 0, len(r.Args))
+	for _, arg := range r.Args {
+		args = append(args, canonicalConstraintType(arg, rename))
+	}
+	return name + "[" + strings.Join(args, ",") + "]"
+}
+
+func normalizedMethodConstraints(d *FnDecl, rename map[string]string) []string {
+	if d == nil {
+		return nil
+	}
+	out := make([]string, 0, len(d.Constraints))
+	for _, group := range d.Constraints {
+		param := group.Param
+		if mapped, ok := rename[param]; ok {
+			param = mapped
+		}
+		required := make([]string, 0, len(group.Types))
+		for _, ref := range group.Types {
+			required = append(required, canonicalConstraintType(ref, rename))
+		}
+		sort.Strings(required)
+		out = append(out, param+":"+strings.Join(required, "+"))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for idx := range a {
+		if a[idx] != b[idx] {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Checker) validateHKTSignature(fi FuncInfo, tok Token) error {
+	arities := map[string]int{}
+	var visit func(Type) error
+	visit = func(t Type) error {
+		if t.Name == "typeapply" && len(t.Args) > 0 {
+			ctor := t.Args[0]
+			if !isTypeVar(ctor) {
+				return c.err(tok, "SAGA-T103", "higher-kinded application requires a type-constructor variable")
+			}
+			name := strings.TrimPrefix(ctor.Name, "$")
+			arity := len(t.Args) - 1
+			if previous, ok := arities[name]; ok && previous != arity {
+				return c.err(tok, "SAGA-T103", fmt.Sprintf("higher-kinded type parameter %s is used with both arity %d and %d", name, previous, arity))
+			}
+			arities[name] = arity
+			for _, arg := range t.Args[1:] {
+				if err := visit(arg); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		for _, arg := range t.Args {
+			if err := visit(arg); err != nil {
+				return err
+			}
+		}
+		if t.Result != nil {
+			return visit(*t.Result)
+		}
+		return nil
+	}
+	for _, param := range fi.Params {
+		if err := visit(param); err != nil {
+			return err
+		}
+	}
+	if fi.HasRet {
+		return visit(fi.Ret)
+	}
+	return nil
+}
+
 func (c *Checker) overrideCompatible(a, b FuncInfo, t Token) error {
 	if len(a.TypeParams) != len(b.TypeParams) {
 		return c.err(t, "SAGA-T103", "override generic method type-parameter count differs")
 	}
 	alpha := map[string]Type{}
+	alphaNames := map[string]string{}
 	for idx, childName := range b.TypeParams {
-		alpha[childName] = typeVar(a.TypeParams[idx])
+		parentName := a.TypeParams[idx]
+		alpha[childName] = typeVar(parentName)
+		alphaNames[childName] = parentName
+	}
+	if a.Decl != nil && b.Decl != nil {
+		parentConstraints := normalizedMethodConstraints(a.Decl, map[string]string{})
+		childConstraints := normalizedMethodConstraints(b.Decl, alphaNames)
+		if !sameStringSlice(parentConstraints, childConstraints) {
+			return c.err(t, "SAGA-T103", "override generic method constraints differ from the contract")
+		}
 	}
 	params := make([]Type, 0, len(b.Params))
 	for _, param := range b.Params {
@@ -939,6 +1057,9 @@ func (c *Checker) declareLocalFn(d *FnDecl) error {
 		return c.err(d.Tok, "SAGA-T103", "nested expression function requires explicit return type")
 	}
 	fi := FuncInfo{Params: ps, Ret: ret, HasRet: true, TypeParams: d.TypeParams, Decl: d}
+	if e := c.validateHKTSignature(fi, d.Tok); e != nil {
+		return e
+	}
 	c.LocalFunctions[d] = fi
 	scope[d.Name] = VarInfo{Typ: fnT(ps, ret)}
 	return nil

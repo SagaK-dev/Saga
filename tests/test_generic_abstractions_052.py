@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 
 from saga.api import compile_source, run_source
-from saga.typesys import INT, TEXT, OPTION, TYPECTOR, parse_type, substitute, unify
+from saga.errors import TypeCheckError
+from saga.typesys import FUNCTION, INT, TEXT, OPTION, TYPECTOR, parse_type, substitute, unify
 
 
 class GenericAbstractions052Tests(unittest.TestCase):
@@ -101,6 +102,25 @@ class GenericAbstractions052Tests(unittest.TestCase):
         }
         """
         compile_source(source)
+
+    def test_hkt_signature_rejects_inconsistent_constructor_arity(self):
+        source = """
+        fn bad[F, A, B](value: F[A, B]) -> F[A] = value
+        """
+        with self.assertRaises(TypeCheckError):
+            compile_source(source)
+
+    def test_hkt_rejects_function_constructor_until_function_kinds_are_modeled(self):
+        pattern = parse_type("F[A]", {"F", "A"})
+        mapping = {}
+        self.assertFalse(unify(pattern, FUNCTION([INT], INT), mapping))
+        source = """
+        fn keep[F, A](value: F[A]) -> F[A] = value
+        fn inc(value: int) -> int = value + 1
+        let kept = keep(inc)
+        """
+        with self.assertRaises(TypeCheckError):
+            compile_source(source)
 
 
 if __name__ == "__main__":

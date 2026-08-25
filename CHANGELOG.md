@@ -1,3 +1,14 @@
+# Saga 0.52.0 (development)
+
+- Integrated intrinsic `Option[T]` and `Result[T, E]` with the Generic ADT constructor and exhaustive-match model while preserving legacy helpers.
+- Added alpha-equivalent generic interface method matching and the `F[A]` applied type-constructor foundation.
+- Hardened HKT signatures with consistent constructor arity and explicitly deferred function-kind constructors until their result kind can be represented without information loss.
+- Made Go generic overrides compare normalized `where` constraints instead of allowing an implementation to narrow an interface contract.
+
+# Saga 0.51.0 (development)
+
+- Added generic enums such as `Maybe[T]`, constructor inference, contextual nullary variants, typed match payloads, and module-interface preservation in Python and Go.
+
 # Saga 0.50.0
 
 - Added transitive `@control_safe` Production GA control-call validation.

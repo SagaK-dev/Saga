@@ -1931,7 +1931,12 @@ class Interpreter:
         if pattern.name == "typeapply" and pattern.args:
             constructor, *arguments = pattern.args
             actual = self._runtime_type_of(value)
-            if actual is None or len(arguments) != len(actual.args) or not is_typevar(constructor):
+            if (
+                actual is None
+                or actual.name == "fn"
+                or len(arguments) != len(actual.args)
+                or not is_typevar(constructor)
+            ):
                 return
             name = typevar_name(constructor)
             candidate = TYPECTOR(actual.name)

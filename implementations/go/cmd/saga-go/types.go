@@ -214,7 +214,7 @@ func unify(pattern, actual Type, m map[string]Type) bool {
 	if pattern.Name == "typeapply" && len(pattern.Args) > 0 {
 		ctor := pattern.Args[0]
 		applied := pattern.Args[1:]
-		if !isTypeVar(ctor) || len(applied) != len(actual.Args) {
+		if !isTypeVar(ctor) || actual.Name == "fn" || len(applied) != len(actual.Args) {
 			return false
 		}
 		name := strings.TrimPrefix(ctor.Name, "$")

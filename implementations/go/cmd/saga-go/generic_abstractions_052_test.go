@@ -79,3 +79,31 @@ print(1)`
 		t.Fatalf("output=%q", out)
 	}
 }
+
+func TestGenericAbstractions052RejectsInconsistentHigherKindedArity(t *testing.T) {
+	src := `fn bad[F, A, B](value: F[A, B]) -> F[A] = value`
+	if _, err := runSagaForTest(t, src); err == nil {
+		t.Fatal("expected inconsistent higher-kinded arity to fail")
+	}
+}
+
+func TestGenericAbstractions052RejectsFunctionAsHigherKindedConstructor(t *testing.T) {
+	src := `fn keep[F, A](value: F[A]) -> F[A] = value
+fn inc(value: int) -> int = value + 1
+let kept = keep(inc)`
+	if _, err := runSagaForTest(t, src); err == nil {
+		t.Fatal("expected function-as-HKT inference to fail until function kinds are modeled")
+	}
+}
+
+func TestGenericAbstractions052OverrideCannotNarrowGenericConstraints(t *testing.T) {
+	src := `interface Transformer {
+fn transform[T](value: T) -> T
+}
+class NumericOnly implements Transformer {
+override fn transform[U](value: U) -> U where U: Numeric = value
+}`
+	if _, err := runSagaForTest(t, src); err == nil {
+		t.Fatal("expected narrowed generic override constraint to fail")
+	}
+}

@@ -39,4 +39,4 @@ Internally, Saga distinguishes a type-constructor binding from an ordinary type 
 
 ### Deliberate boundary
 
-0.52 is the higher-kinded *foundation*, not a claim of a finished kind calculus. Explicit kind annotation syntax such as `F[_]`, higher-rank kinds, type lambdas, and a dedicated trait/type-class declaration syntax are intentionally deferred. The new representation and inference path are designed so those features can be added without replacing the 0.51 Generic ADT model.
+0.52 is the higher-kinded *foundation*, not a claim of a finished kind calculus. Explicit kind annotation syntax such as `F[_]`, higher-rank kinds, type lambdas, and a dedicated trait/type-class declaration syntax are intentionally deferred. A constructor variable must use one consistent arity throughout a signature, and function types are not inferred as higher-kinded constructors until Saga has an explicit function-kind representation that preserves both parameter and result structure. The new representation and inference path are designed so those features can be added without replacing the 0.51 Generic ADT model.

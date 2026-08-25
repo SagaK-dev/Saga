@@ -257,11 +257,47 @@ class TypeChecker:
             if len(value.args) != len(info.type_params):
                 self._error(token, f"型 '{name}' には {len(info.type_params)} 個の型引数が必要です")
 
+    def _validate_hkt_signature(self, info: FunctionInfo, token: Token) -> None:
+        arities: dict[str, int] = {}
+
+        def visit(value: Type) -> None:
+            if value.name == "typeapply" and value.args:
+                constructor, *arguments = value.args
+                if not is_typevar(constructor):
+                    self._error(
+                        token,
+                        "higher-kinded application requires a type-constructor variable",
+                        diagnostic_id="SAGA-T103",
+                    )
+                name = typevar_name(constructor)
+                arity = len(arguments)
+                previous = arities.get(name)
+                if previous is not None and previous != arity:
+                    self._error(
+                        token,
+                        f"higher-kinded型引数 '{name}' のarityが一致しません: {previous} と {arity}",
+                        diagnostic_id="SAGA-T103",
+                    )
+                arities[name] = arity
+                for argument in arguments:
+                    visit(argument)
+                return
+            for argument in value.args:
+                visit(argument)
+            if value.result is not None:
+                visit(value.result)
+
+        for param in info.params:
+            visit(param)
+        if info.return_type is not None:
+            visit(info.return_type)
+
     def _validate_function_types(self, info: FunctionInfo, token: Token) -> None:
         for param in info.params:
             self._validate_type_reference(param, token)
         if info.return_type is not None:
             self._validate_type_reference(info.return_type, token)
+        self._validate_hkt_signature(info, token)
 
     def _validate_declared_types(self, program: ast.Program) -> None:
         # Validation is intentionally delayed until every class shell in the
