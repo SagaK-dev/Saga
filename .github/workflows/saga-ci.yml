@@ -45,6 +45,7 @@ jobs:
           tests.test_generic_abstractions_052
           tests.test_generic_adts_051
           tests.test_language_synthesis_045
+          tests.test_cli_identity_054
       - name: Run Go regression
         working-directory: implementations/go
         run: go test ./...
