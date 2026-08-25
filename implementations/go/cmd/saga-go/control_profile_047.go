@@ -82,9 +82,30 @@ func validateControlTickContract047(d *FnDecl) error {
 	return nil
 }
 
+func clearControlScope054(d *FnDecl) {
+	d.controlOwner = ""
+	d.controlFunctions = nil
+	d.controlMethods = nil
+}
+
 func validateControlTick047(d *FnDecl) error {
-	if !machineControlTickAnnotated(d) {
-		return nil
+	tick := machineControlTickAnnotated(d)
+	safe := machineControlSafeAnnotated(d)
+	if !tick {
+		if !safe {
+			return nil
+		}
+		if d.Async {
+			return diag("SAGA-T001", "SAGA-C484", "@control_safe function cannot be async", d.Tok)
+		}
+		clone := *d
+		clone.Annotations = append([]Annotation{}, d.Annotations...)
+		clone.Annotations = append(clone.Annotations, Annotation{Name: "control_tick", Tok: d.Tok})
+		clearControlScope054(&clone)
+		if err := validateControlTick047(&clone); err != nil {
+			return err
+		}
+		return validateControlLexicalTransitive054(d)
 	}
 	if err := validateControlTickContract047(d); err != nil {
 		return err
@@ -204,10 +225,16 @@ func validateControlTick047(d *FnDecl) error {
 		}
 		return nil
 	}
+	var err error
 	if d.ExprBody != nil {
-		return walkExpr(d.ExprBody)
+		err = walkExpr(d.ExprBody)
+	} else {
+		err = walkStmt(d.Body)
 	}
-	return walkStmt(d.Body)
+	if err != nil {
+		return err
+	}
+	return validateControlLexicalTransitive054(d)
 }
 
 // Saga 0.50 Production-GA whole-call-graph hardening.
@@ -251,7 +278,198 @@ func validateControlRestrictedHelper050(d *FnDecl) error {
 	clone := *d
 	clone.Annotations = append([]Annotation{}, d.Annotations...)
 	clone.Annotations = append(clone.Annotations, Annotation{Name: "control_tick", Tok: d.Tok})
+	clearControlScope054(&clone)
 	return validateControlTick047(&clone)
+}
+
+func controlNodeKey054(d *FnDecl) string {
+	if d.controlOwner != "" {
+		return "method:" + d.controlOwner + "." + d.Name
+	}
+	return "fn:" + d.Name
+}
+
+func validateControlReferencedLocal054(d *FnDecl) error {
+	clone := *d
+	clearControlScope054(&clone)
+	return validateControlTick047(&clone)
+}
+
+// validateControlLexicalTransitive054 is the implementation-neutral lexical
+// call-graph pass used by both top-level functions and class methods. The
+// parser binds same-source functions and same-receiver methods directly on the
+// AST, so this pass does not depend on Checker internals and therefore applies
+// to method bodies before type-checking can hide an unverified helper call.
+func validateControlLexicalTransitive054(root *FnDecl) error {
+	if !machineControlTickAnnotated(root) && !machineControlSafeAnnotated(root) {
+		return nil
+	}
+	if root.controlFunctions == nil && root.controlMethods == nil {
+		return nil
+	}
+	visiting := map[string]bool{}
+	visited := map[string]bool{}
+	var visit func(*FnDecl) error
+	visit = func(d *FnDecl) error {
+		key := controlNodeKey054(d)
+		if visiting[key] {
+			return diag("SAGA-T001", "SAGA-C485", "Production GA control call graph cannot be recursive: "+key, d.Tok)
+		}
+		if visited[key] {
+			return nil
+		}
+		visiting[key] = true
+		defer func() { visiting[key] = false; visited[key] = true }()
+
+		if d != root {
+			if e := validateControlReferencedLocal054(d); e != nil {
+				return e
+			}
+		}
+		locals := map[string]bool{}
+		for _, p := range d.Params {
+			locals[p.Name] = true
+		}
+		var walkExpr func(Expr) error
+		var walkStmt func(Stmt) error
+		walkExpr = func(e Expr) error {
+			if e == nil {
+				return nil
+			}
+			switch x := e.(type) {
+			case *Unary:
+				return walkExpr(x.Right)
+			case *Binary:
+				if q := walkExpr(x.Left); q != nil {
+					return q
+				}
+				return walkExpr(x.Right)
+			case *RangeExpr:
+				if q := walkExpr(x.Start); q != nil {
+					return q
+				}
+				return walkExpr(x.End)
+			case *Call:
+				name := controlExprPath(x.Callee)
+				if name == "" {
+					return diag("SAGA-T001", "SAGA-C489", "Production GA control code cannot use indirect/dynamic calls", x.Tok)
+				}
+				var target *FnDecl
+				if strings.HasPrefix(name, "self.") && d.controlOwner != "" {
+					methodName := strings.TrimPrefix(name, "self.")
+					if !strings.Contains(methodName, ".") {
+						target = d.controlMethods[methodName]
+					}
+				} else if !strings.Contains(name, ".") {
+					target = d.controlFunctions[name]
+				}
+				if target != nil {
+					if !machineControlSafeAnnotated(target) && !machineControlTickAnnotated(target) {
+						return diag("SAGA-T001", "SAGA-C490", "control function cannot call unverified user function "+name, x.Tok)
+					}
+					if q := visit(target); q != nil {
+						return q
+					}
+				} else if !strings.Contains(name, ".") {
+					if !controlSafeBuiltins050[name] {
+						return diag("SAGA-T001", "SAGA-C491", "Production GA control code cannot call builtin "+name, x.Tok)
+					}
+				} else if strings.HasPrefix(name, "machine.") {
+					if !controlSafeMachine050[name] {
+						return diag("SAGA-T001", "SAGA-C492", "Production GA control code cannot call "+name, x.Tok)
+					}
+				} else {
+					return diag("SAGA-T001", "SAGA-C493", "Production GA control code cannot call external module "+name, x.Tok)
+				}
+				for _, a := range x.Args {
+					if q := walkExpr(a); q != nil {
+						return q
+					}
+				}
+				return nil
+			case *Index:
+				if q := walkExpr(x.Target); q != nil {
+					return q
+				}
+				return walkExpr(x.Index)
+			case *Member:
+				return walkExpr(x.Target)
+			case *PropagateExpr:
+				return walkExpr(x.Value)
+			case *InterpolatedString:
+				for _, q := range x.Exprs {
+					if z := walkExpr(q); z != nil {
+						return z
+					}
+				}
+			}
+			return nil
+		}
+		walkStmt = func(s Stmt) error {
+			if s == nil {
+				return nil
+			}
+			switch x := s.(type) {
+			case *Block:
+				for _, q := range x.Stmts {
+					if z := walkStmt(q); z != nil {
+						return z
+					}
+				}
+			case *VarDecl:
+				locals[x.Name] = true
+				return walkExpr(x.Init)
+			case *Assign:
+				switch t := x.Target.(type) {
+				case *Variable:
+					if !locals[t.Name] {
+						return diag("SAGA-T001", "SAGA-C487", "control function cannot mutate shared/global variable "+t.Name, t.Tok)
+					}
+				case *Member:
+					return diag("SAGA-T001", "SAGA-C488", "control function cannot directly mutate arbitrary object fields", t.Tok)
+				}
+				return walkExpr(x.Value)
+			case *ExprStmt:
+				return walkExpr(x.Expr)
+			case *IfStmt:
+				if z := walkExpr(x.Cond); z != nil {
+					return z
+				}
+				if z := walkStmt(x.Then); z != nil {
+					return z
+				}
+				return walkStmt(x.Else)
+			case *ForStmt:
+				locals[x.Name] = true
+				if r, ok := x.Iterable.(*RangeExpr); ok {
+					a, aok := controlLiteralInt050(r.Start)
+					b, bok := controlLiteralInt050(r.End)
+					if aok && bok {
+						delta := b - a
+						if delta < 0 {
+							delta = -delta
+						}
+						if delta > 4096 {
+							return diag("SAGA-T001", "SAGA-C486", "control loop static bound exceeds 4096 iterations", x.Tok)
+						}
+					}
+				}
+				return walkStmt(x.Body)
+			case *ReturnStmt:
+				return walkExpr(x.Value)
+			}
+			return nil
+		}
+		if d.ExprBody != nil {
+			if e := walkExpr(d.ExprBody); e != nil {
+				return e
+			}
+		} else if e := walkStmt(d.Body); e != nil {
+			return e
+		}
+		return nil
+	}
+	return visit(root)
 }
 
 func (c *Checker) validateControlTransitive050(root *FnDecl) error {
