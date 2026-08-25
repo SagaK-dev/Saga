@@ -22,19 +22,27 @@ jobs:
       - name: Install native test dependencies
         run: sudo apt-get update && sudo apt-get install -y clang llvm
       - name: Install Saga
-        run: python -m pip install -e .
+        run: python -m pip install -e '.[dev]'
       - name: Compile Python sources
         run: python -m compileall -q saga tools
-      - name: Run current language/control regression
+      - name: Run machine and drone control regression
         run: >-
           python -m unittest
-          tests.test_generic_abstractions_052
-          tests.test_generic_adts_051
+          tests.test_machine_drone_focus_053
+          tests.test_machine_control_028
+          tests.test_machine_control_036
+          tests.test_drone_control_040
+          tests.test_control_4khz_044
           tests.test_control_ga_050
           tests.test_production_industrial_049
           tests.test_virtual_hil_048
           tests.test_advanced_motion_047
           tests.test_precision_machine_046
+      - name: Run current language regression
+        run: >-
+          python -m unittest
+          tests.test_generic_abstractions_052
+          tests.test_generic_adts_051
           tests.test_language_synthesis_045
       - name: Run Go regression
         working-directory: implementations/go

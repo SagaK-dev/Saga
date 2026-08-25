@@ -1,0 +1,6 @@
+use machine
+
+let pid = machine.pid(1.0, 0.1, 0.0, -1.0, 1.0)
+let command = machine.pid_step(pid, 10.0, 8.0, 0.1)
+
+print(command)
