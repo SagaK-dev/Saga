@@ -267,10 +267,10 @@ def _control_surface_violations(fn: ast.FunctionDecl, functions: dict[str, ast.F
 def validate_control_program(program: ast.Program) -> list[ControlProfileViolation]:
     """Whole-program Production-GA validation for control-critical functions.
 
-    This is deliberately stricter than the compatibility-level @control_tick
-    checker. It validates transitive helpers, recursion, indirect calls, shared
-    mutation and hidden I/O. Older non-production code remains source-compatible
-    unless it opts into @control_safe or @control_tick.
+    This includes the local ``@control_tick`` restrictions as well as transitive
+    helper, recursion, indirect-call, shared-mutation and hidden-I/O checks.
+    Older non-production code remains source-compatible unless it opts into
+    ``@control_safe`` or ``@control_tick``.
     """
     functions = {s.name.lexeme: s for s in program.statements if isinstance(s, ast.FunctionDecl)}
     graph: dict[str, set[str]] = {}
@@ -278,6 +278,8 @@ def validate_control_program(program: ast.Program) -> list[ControlProfileViolati
     for name, fn in functions.items():
         if not (is_control_tick(fn) or is_control_safe(fn)):
             continue
+        if is_control_tick(fn):
+            out.extend(validate_control_tick(fn))
         if is_control_safe(fn) and fn.async_:
             out.append(ControlProfileViolation(fn.name, "SAGA-C484", "@control_safe 関数を async にすることはできません", "周期制御から呼ばれるhelperは同期・有界・決定的にしてください"))
         # Reuse the proven 0.47 restricted source surface for helpers too.

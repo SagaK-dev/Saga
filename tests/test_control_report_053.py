@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from saga.api import parse_source
+from saga.api import compile_source, parse_source
 from saga.control_report import build_control_report, render_control_report, render_control_report_html
 
 
@@ -67,6 +67,41 @@ fn tick(error: decimal) -> decimal {
         html = render_control_report_html(report)
         self.assertIn('REVIEW NEEDED', html)
         self.assertIn('SAGA-C492', html)
+
+    def test_bare_tick_keeps_legacy_compatibility(self):
+        source = '''
+@control_tick
+fn tick(error: decimal) -> decimal {
+    return error
+}
+'''
+        program = parse_source(source, '<legacy-control>')
+        report = build_control_report(program, '<legacy-control>')
+
+        self.assertEqual(report['verdict'], 'pass')
+        tick = next(item for item in report['control_functions'] if item['name'] == 'tick')
+        self.assertNotIn('timing', tick)
+        compile_source(source, '<legacy-control>')
+
+    def test_report_includes_local_tick_restrictions(self):
+        program = parse_source(
+            '''
+@control_tick
+fn tick(error: decimal) -> decimal {
+    var value = error
+    while value < 1.0 {
+        value = value + 0.1
+    }
+    return value
+}
+''',
+            '<unbounded-control>',
+        )
+
+        report = build_control_report(program, '<unbounded-control>')
+
+        self.assertEqual(report['verdict'], 'fail')
+        self.assertIn('SAGA-C477', {item['code'] for item in report['issues']})
 
     def test_non_control_program_is_not_misrepresented_as_safe(self):
         program = parse_source('fn add(a: int, b: int) -> int { return a + b }', '<ordinary>')

@@ -32,7 +32,7 @@ fn current_tick(error: decimal) -> decimal {
 
 `@control_tick(20000, 35)` declares a 20 kHz control path with a 35 µs source-level execution budget. Saga checks the declared control surface and its verified helpers for patterns that make the path difficult to bound or reason about, including hidden blocking/external I/O, unbounded work, shared mutation, indirect calls, unverified helpers, and recursion.
 
-The DIFF 2026 branch also turns that analysis into an explainable report:
+Saga can also turn that analysis into an explainable report:
 
 ```bash
 saga-control-report examples/contest/diff_safe_control.saga
@@ -174,7 +174,7 @@ capabilities      static capability audit
 doctor            environment diagnostics
 ```
 
-DIFF branch:
+Control report:
 
 ```text
 saga-control-report   explain and visualize the source-level control profile
