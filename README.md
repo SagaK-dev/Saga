@@ -2,64 +2,21 @@
 
 **Saga is a programming language for machine control, robotics, and autonomous/drone systems.**
 
-Saga is designed to make control software readable enough to iterate on quickly while keeping hardware authority, timing-sensitive code, resource lifetime, and native execution explicit. The project aims to combine three qualities that are usually split across different ecosystems:
+The project starts from a simple problem: control software should be readable enough to review and tune, but timing-sensitive code and hardware authority should not disappear behind convenient APIs.
 
-- **C-style hardware reach:** native interfaces, device buses, fieldbus work, deterministic low-level control paths, and direct systems integration;
-- **Rust-style explicit control boundaries:** capability-gated hardware access, move-only resources, deterministic cleanup, fail-closed production checks, and static control-profile restrictions;
-- **Python-style readability:** compact control code, a small surface language, rapid hosted/SITL experimentation, and a Python reference implementation.
+Saga combines three ideas:
 
-Saga does **not** claim the ecosystem maturity, compiler maturity, hardware coverage, or certification history of C, Rust, or Python today. The goal of the 0.53 development line is narrower and measurable: make machine and drone control the primary language use case and continuously verify that control-facing behavior works in both Saga implementations.
+- **readable control code** with a compact, Python-like surface;
+- **explicit control boundaries** such as `@control_tick`, `@control_safe`, capabilities, move-only resources, and deterministic cleanup;
+- **native systems reach** through machine/drone libraries, device buses, native code generation, and a second implementation in Go.
 
-## Project status
+Saga is an active language project, not a safety-certified product. Software checks can reject risky source patterns; they cannot replace target WCET measurement, physical HIL, E-stop/STO/interlock validation, airworthiness work, or other deployment-specific evidence.
 
-- **Latest frozen release:** Saga 0.50.0 — Production GA Control Hardening
-- **Current development version:** Saga 0.53.0 — Machine & Drone Control Focus
-- **Frozen release branch:** `release/0.50.0-production-ga`
-- **Development branch:** `main`
-- **License:** MIT
-- **Python requirement:** 3.13+
+## The 60-second idea
 
-`release/source-manifest-0.50.0.json` remains the immutable source description of the frozen 0.50.0 candidate. Saga 0.53.0 on `main` is a development line. A future frozen release must create new source-bound evidence rather than rewriting historical 0.50 evidence.
-
-The **Production GA** label on Saga 0.50 describes a language/toolchain control profile. It is **not** a functional-safety certificate for a physical machine or aircraft. Hard real-time guarantees, WCET, physical HIL, actuator/drive validation, E-stop/STO/interlock behavior, airworthiness, SIL/PL evidence, and regulatory approval remain target- and deployment-specific.
-
-## Why Saga for control systems?
-
-Machine and flight-control code has conflicting requirements: it needs low-level access and predictable behavior, but it also needs to remain understandable during tuning, diagnosis, simulation, and review. Saga makes those concerns part of the language/toolchain rather than treating them as unrelated libraries.
-
-The intended development loop is:
-
-1. write readable control logic in Saga;
-2. type-check and apply control-profile restrictions before execution;
-3. run portable control logic in the hosted reference implementation;
-4. run the same control surface through the independent Go implementation;
-5. use native, SITL, HIL, and target-specific adapters where appropriate;
-6. require source-bound qualification before making deployment claims.
-
-## Machine-control stack
-
-Saga's current machine-control surface includes software implementations and adapters for:
-
-- PID and 2-DOF PID control;
-- low-pass and biquad filtering;
-- alpha-beta observation, Kalman filtering, disturbance observation, RLS, state-space control, LQR/MPC-oriented control support;
-- jerk-limited and acceleration-limited motion profiles;
-- synchronized multi-axis motion and control allocation;
-- encoder tracking, PWM, servo, and DC motor control;
-- field-oriented motor-control building blocks;
-- monotonic control cycles, deadline budgets, watchdogs, control guards, and safety latches;
-- I2C, SPI, UART, CAN/CAN FD, Modbus RTU/TCP, and raw EtherCAT paths;
-- CANopen/CiA 402, PLC scan/process-image, and kinematic-control building blocks;
-- capability-gated access to host devices and explicit resource lifetime.
-
-Example:
+A periodic machine-control path should make its timing contract visible in the source:
 
 ```saga
-use machine
-
-let safety = machine.safety_latch()
-let pid = machine.pid(1.2, 0.08, 0.01, -1.0, 1.0)
-
 @control_safe
 fn clamp_command(value: decimal) -> decimal {
     if value > 1.0 { return 1.0 }
@@ -71,128 +28,140 @@ fn clamp_command(value: decimal) -> decimal {
 fn current_tick(error: decimal) -> decimal {
     return clamp_command(error * 0.5)
 }
-
-print(machine.pid_step(pid, 10.0, 8.0, 0.01))
 ```
 
-`@control_safe` and `@control_tick` are source/toolchain contracts. The production control profile rejects classes of hidden allocation/I/O, recursion, indirect calls, shared mutation, and unapproved external behavior from declared control paths.
+`@control_tick(20000, 35)` declares a 20 kHz control path with a 35 µs source-level execution budget. Saga checks the declared control surface and its verified helpers for patterns that make the path difficult to bound or reason about, including hidden blocking/external I/O, unbounded work, shared mutation, indirect calls, unverified helpers, and recursion.
 
-## Drone and autonomous-control stack
+The DIFF 2026 branch also turns that analysis into an explainable report:
 
-Saga's current drone surface is built around explicit flight-state transitions and reusable control primitives rather than automatic hidden policy. It includes:
-
-- attitude estimation for hosted/SITL loops;
-- Euler/RPY and quaternion attitude control;
-- body-rate and position controllers;
-- quad-X mixing and general multirotor control allocation;
-- actuator-disable handling and allocation residual reporting;
-- geofence checks and predictive boundary checks;
-- waypoint missions, RTL planning, and landing-profile helpers;
-- MAVLink 2 framing, checksum validation, signing/verification, common telemetry decoding, stream parsing, and offboard command builders;
-- DroneCAN framing helpers;
-- DShot packet creation and PWM ESC helpers;
-- jerk-limited 3D trajectory generation;
-- link-quality monitoring;
-- visual servoing, VIO/SLAM, multi-drone coordination, and vision/media integration paths.
-
-A minimal software-only flight-control surface looks like this:
-
-```saga
-use machine
-use drone
-
-let safety = machine.safety_latch()
-let flight = drone.flight_manager(safety, 0.2)
-
-drone.health_update(flight, true, true, 0.8, true, true, true)
-drone.arm(flight, true)
-
-let mixer = drone.quad_x_mixer(0.05, 1.0)
-let motors = drone.mix_quad_x(mixer, 0.5, 0.0, 0.0, 0.0)
-
-print(drone.flight_allowed(flight))
-print(len(motors))
+```bash
+saga-control-report examples/contest/diff_safe_control.saga
+saga-control-report examples/contest/diff_safe_control.saga --html build/control-report.html
 ```
 
-Health updates are observations; they do not silently change the flight mode. Arming, disarming, mode changes, and safety trips remain explicit control events.
+The visual report converts 20 kHz into a 50 µs period, shows that the 35 µs declared budget uses 70% of the period, lists the checks performed, and keeps the boundary between source analysis and physical-safety evidence explicit.
 
-## Hardware authority and resource safety
+A deliberately unsafe example is included too:
 
-Control software should not gain hardware authority merely because a module was imported. Saga keeps host/device operations behind capabilities and treats hardware-facing objects as resources.
+```bash
+saga-control-report examples/contest/diff_unsafe_control.saga
+```
 
-Language/toolchain mechanisms include:
+The useful part is not simply that it fails. The report points to the source location, keeps a stable `SAGA-C...` diagnostic code, and suggests how to move time-dependent/raw I/O outside the periodic path.
 
-- capability-gated device and external authority;
-- `using` for deterministic cleanup;
-- `move` for explicit transfer of move-only resources;
-- static checking around resource reuse;
-- fail-closed production checks when required evidence is missing;
-- separate software qualification from physical-system certification.
+See [`docs/DIFF_SHIZUOKA_2026.md`](docs/DIFF_SHIZUOKA_2026.md) for the contest demo and judging story.
 
-This is intentionally less pervasive than making every ordinary value subject to ownership rules. Stronger lifetime/authority rules are concentrated where the program can affect external state.
+## Project status
 
-## Control-oriented language design
+- **Latest frozen release:** Saga 0.50.0 — Production GA Control Hardening
+- **Current development version:** Saga 0.53.0 — Machine & Drone Control Focus
+- **Frozen release branch:** `release/0.50.0-production-ga`
+- **Development branch:** `main`
+- **License:** MIT
+- **Python requirement:** 3.13+
 
-Saga remains a complete general-purpose language, but general-purpose features support the control use case rather than define the project identity. Important language/toolchain areas include:
+The Production GA name refers to a language/toolchain control profile. It is not a functional-safety certificate for a physical machine or aircraft.
 
-- static types with exact-number-oriented defaults;
-- `Option[T]` / `Result[T, E]` and explicit failure propagation;
-- generic ADTs and generic abstraction work;
-- namespaced modules, public/internal visibility, separate compilation, and deterministic interfaces;
-- `async` / `await`, lexical `taskgroup`, `defer`, deterministic `using`, and resource-focused `move`;
-- native/WASM code generation and native ABI work;
-- package/workspace locking and deterministic artifacts;
-- LSP, debugging, profiling, diagnostics, and capability auditing;
-- Python reference implementation plus an independent Go implementation.
+## Why a language instead of another control library?
 
-## Two implementations, one control surface
+A library can provide a PID controller or a CAN API. Saga's main experiment is different: make important control constraints visible to the parser, checker, diagnostics, and build tooling.
 
-Saga keeps a Python reference implementation and an independent Go implementation. For machine/drone-facing language behavior, 0.53 adds permanent control regression coverage so changes cannot silently preserve one implementation while breaking the other.
+That gives the toolchain a chance to answer questions such as:
 
-The implementations are not assumed to be identical internally. The requirement is that documented common Saga behavior has matching observable semantics and diagnostics where the shared specification requires them.
+- Which functions are part of the periodic control surface?
+- What frequency and budget did the author declare?
+- Did a helper hide blocking I/O?
+- Did shared mutation or recursion enter the control call graph?
+- Does a device operation require an explicit capability?
+- Can a reviewer see why a pattern was rejected and what to change?
+
+These are language/tooling concerns, not just math-library concerns.
 
 ## Quick start
-
-Clone and install the reference implementation:
 
 ```bash
 git clone https://github.com/SagaK-dev/Saga.git
 cd Saga
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e '.[dev]'
 ```
 
 Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install -e '.[dev]'
 ```
 
-Check the toolchain:
+Try the control demo:
 
 ```bash
-saga --version
-saga doctor
+saga check examples/contest/diff_safe_control.saga
+saga run examples/contest/diff_safe_control.saga
+saga-control-report examples/contest/diff_safe_control.saga
 ```
 
-Run a control program:
+Run the regression tests added for the report:
 
 ```bash
-saga check examples/control/machine_pid.saga
-saga run examples/control/machine_pid.saga
+python -m unittest tests.test_control_report_053 tests.test_control_ga_050
 ```
 
-## Core CLI
+## Machine-control surface
+
+Saga currently includes software implementations and adapters for areas such as:
+
+- PID / 2-DOF PID, filtering, observers, Kalman/RLS, state-space and MPC-oriented primitives;
+- jerk/acceleration-limited motion, synchronized axes, control allocation and kinematics;
+- encoder/PWM/servo/DC motor and field-oriented-control building blocks;
+- control cycles, deadline budgets, watchdogs, guards and safety latches;
+- I2C, SPI, UART, CAN/CAN FD, Modbus and raw EtherCAT paths;
+- CANopen/CiA 402 and PLC/process-image building blocks;
+- capability-gated host/device access and explicit resource lifetime.
+
+The project intentionally separates source-level restrictions from claims about a particular controller, actuator, fieldbus installation, or safety circuit.
+
+## Drone and autonomous-control surface
+
+The drone layer includes reusable software/control pieces such as:
+
+- attitude, body-rate and position-control helpers;
+- quaternion/RPY control and multirotor allocation;
+- flight-state and health transitions;
+- geofence, waypoint, RTL and landing helpers;
+- MAVLink 2 framing, validation, signing/verification and telemetry decoding;
+- DroneCAN and DShot/PWM helpers;
+- trajectory, link-quality, vision/media and coordination integration paths.
+
+Flight-state changes remain explicit. Health observations do not silently arm, disarm, or change modes.
+
+## Language and toolchain
+
+Saga also contains the infrastructure expected of an independent language project:
+
+- lexer, parser and AST;
+- static type checking;
+- algebraic data types, `Option[T]` / `Result[T, E]`, generics and match checking;
+- namespaced modules and separate-compilation interfaces;
+- `async` / `await`, task groups, `defer`, `using`, and resource-focused `move`;
+- native/WASM code generation and native ABI work;
+- deterministic package/workspace locking;
+- diagnostics, LSP, debugging and profiling;
+- capability auditing;
+- a Python reference implementation and an independent Go implementation.
+
+The two implementations do not need identical internals. Documented common behavior should have matching observable semantics where the shared specification requires it.
+
+## Core commands
 
 ```text
 run               execute checked Saga source
 check             parse/type-check without execution
 repl              interactive REPL
-new               create a Saga project
+new               create a project
 lint / fmt        style and source checks
-module            generate separate-compilation module interfaces
+module            separate-compilation interfaces
 test              run Saga tests
 lock / verify     reproducible project locking
 production-check  project/workspace production gate
@@ -201,30 +170,42 @@ build             native executable or WebAssembly build
 conformance       Standard Core self-conformance
 lsp               Language Server Protocol server
 debug / profile   debugging and profiling
-registry          package-registry server/client workflows
-mobile            generate mobile runtime projects
-ecosystem         package/bridge SDK tooling
 capabilities      static capability audit
 doctor            environment diagnostics
 ```
 
-Run `saga --help` or `saga <command> --help` for the full surface.
+DIFF branch:
 
-## Qualification
+```text
+saga-control-report   explain and visualize the source-level control profile
+```
 
-For control-oriented deployment checks:
+## Repository structure
+
+```text
+saga/               Python reference implementation and control libraries
+implementations/go/ independent Go implementation and native control runtime
+spec/               language and control-profile specifications
+docs/               design, control, qualification and contest documentation
+tests/              language/control regression tests
+tools/              qualification/release/developer tooling
+validation/         validation and qualification evidence
+release/            frozen source manifests
+examples/           Saga programs and control demos
+.github/workflows/  CI and qualification workflows
+```
+
+## Qualification and evidence
+
+For the stricter machine-production gate:
 
 ```bash
 saga production-check --native --machine
 ```
 
-The machine-production gate is designed to fail closed when required source-bound timing, hazard, WCET, HIL, or independent hardware-safety evidence is absent.
+This gate is designed to fail closed when required source-bound timing, hazard, WCET, HIL, or hardware-safety evidence is absent. A green software CI run is evidence for the software tests that actually ran; it is not proof that an arbitrary robot, motor, PLC, drone, radio link, or safety circuit is physically safe.
 
-Development CI covers software behavior. Additional workflows cover native desktop hosts, platform/runtime qualification, mobile build evidence, live registry qualification, and self-hosted physical hardware-lab qualification.
-
-A green software CI run is evidence that the tested software behavior passed. It is **not** proof that an arbitrary motor, PLC, robot, drone, flight controller, radio link, or safety circuit is safe in the physical world.
-
-See:
+Useful documents:
 
 - `docs/MACHINE_DRONE_CONTROL_0.53.md`
 - `spec/SAGA_PRODUCTION_GA_CONTROL_0.50.md`
@@ -233,26 +214,13 @@ See:
 - `saga-REVIEW_REPORT-0.50.0.md`
 - `saga-VALIDATION-0.50.0.md`
 
-## Repository structure
-
-```text
-saga/               Python reference implementation and control libraries
-implementations/go/ independent Go implementation and native control runtime
-spec/               language and control-profile specifications
-docs/               design, control, and qualification documentation
-tests/              Python language/control regression tests
-tools/              qualification/release/developer tooling
-validation/         validation and qualification evidence
-release/            frozen source manifests
-examples/           Saga programs, including control examples
-.github/workflows/  CI and qualification workflows
-```
-
 ## Contributing
 
-See `CONTRIBUTING.md`. Machine/drone-facing changes must include regression coverage for the affected control surface and must not weaken safety/authority checks merely to make a test pass.
+See `CONTRIBUTING.md`.
 
-At minimum, run the relevant Python control tests plus:
+For machine/drone-facing changes, add regression coverage for the affected control surface. Do not weaken an authority or safety check only to make a test pass, and do not rewrite historical frozen-release evidence to match a changed development tree.
+
+At minimum, run the relevant Python control tests and the independent Go regression:
 
 ```bash
 cd implementations/go
@@ -260,14 +228,8 @@ go test ./...
 go vet ./...
 ```
 
-Do not rewrite historical release evidence to make it match a changed development tree.
-
-## Security and physical-safety boundary
+## Security boundary
 
 See `SECURITY.md` for vulnerability-reporting guidance and the machine-control safety boundary.
 
-Do not commit secrets, MAVLink signing keys, device credentials, production tokens, or sensitive third-party data. Do not describe simulated, hosted, or software-only validation as physical HIL or safety certification.
-
-## Release history
-
-The repository retains release notes, specifications, review reports, validation documents, and source manifests for prior milestones. Saga 0.50.0 remains the latest frozen release; Saga 0.53.0 is the active machine/drone-control development line.
+Do not commit secrets, MAVLink signing keys, device credentials, production tokens, or sensitive third-party data. Do not describe simulated, hosted, or software-only validation as physical HIL or certification.
