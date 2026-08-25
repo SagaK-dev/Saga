@@ -58,48 +58,60 @@ def _program_scopes(program: ast.Program, prefix: str = "") -> Iterator[tuple[st
         yield from _program_scopes(ast.Program(statement.statements), child_prefix)
 
 
+def _control_entry(function: ast.FunctionDecl, qualified_name: str) -> dict[str, Any] | None:
+    tick = _annotation(function, "control_tick")
+    safe = _annotation(function, "control_safe")
+    if tick is None and safe is None:
+        return None
+
+    entry: dict[str, Any] = {
+        "name": qualified_name,
+        "file": function.name.filename or "<input>",
+        "line": function.name.line,
+        "role": "tick" if tick is not None else "helper",
+    }
+
+    if tick is not None:
+        entry["timing_contract"] = "legacy-untimed" if not tick.arguments else "invalid"
+        if len(tick.arguments) == 2:
+            rate_hz = _int_literal(tick.arguments[0])
+            budget_us = _int_literal(tick.arguments[1])
+            if (
+                rate_hz is not None
+                and budget_us is not None
+                and 0 < rate_hz <= 1_000_000
+                and budget_us > 0
+                and budget_us * rate_hz <= 1_000_000
+            ):
+                period_us = 1_000_000 / rate_hz
+                entry["timing_contract"] = "declared"
+                entry["timing"] = {
+                    "rate_hz": rate_hz,
+                    "period_us": round(period_us, 3),
+                    "budget_us": budget_us,
+                    "budget_percent": round((budget_us / period_us) * 100, 1),
+                    "headroom_us": round(period_us - budget_us, 3),
+                }
+
+    return entry
+
+
 def _control_functions(program: ast.Program) -> list[dict[str, Any]]:
     functions: list[dict[str, Any]] = []
     for prefix, scope in _program_scopes(program):
         for statement in scope.statements:
-            if not isinstance(statement, ast.FunctionDecl):
+            if isinstance(statement, ast.FunctionDecl):
+                entry = _control_entry(statement, f"{prefix}{statement.name.lexeme}")
+                if entry is not None:
+                    functions.append(entry)
                 continue
 
-            tick = _annotation(statement, "control_tick")
-            safe = _annotation(statement, "control_safe")
-            if tick is None and safe is None:
-                continue
-
-            entry: dict[str, Any] = {
-                "name": f"{prefix}{statement.name.lexeme}",
-                "file": statement.name.filename or "<input>",
-                "line": statement.name.line,
-                "role": "tick" if tick is not None else "helper",
-            }
-
-            if tick is not None:
-                entry["timing_contract"] = "legacy-untimed" if not tick.arguments else "invalid"
-                if len(tick.arguments) == 2:
-                    rate_hz = _int_literal(tick.arguments[0])
-                    budget_us = _int_literal(tick.arguments[1])
-                    if (
-                        rate_hz is not None
-                        and budget_us is not None
-                        and 0 < rate_hz <= 1_000_000
-                        and budget_us > 0
-                        and budget_us * rate_hz <= 1_000_000
-                    ):
-                        period_us = 1_000_000 / rate_hz
-                        entry["timing_contract"] = "declared"
-                        entry["timing"] = {
-                            "rate_hz": rate_hz,
-                            "period_us": round(period_us, 3),
-                            "budget_us": budget_us,
-                            "budget_percent": round((budget_us / period_us) * 100, 1),
-                            "headroom_us": round(period_us - budget_us, 3),
-                        }
-
-            functions.append(entry)
+            if isinstance(statement, ast.ClassDecl):
+                class_name = statement.name.lexeme
+                for method in statement.methods:
+                    entry = _control_entry(method, f"{prefix}{class_name}.{method.name.lexeme}")
+                    if entry is not None:
+                        functions.append(entry)
     return functions
 
 

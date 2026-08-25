@@ -23,6 +23,7 @@ func parse(tokens []Token) ([]Stmt, error) {
 		out = append(out, s)
 		p.match(SEMICOLON)
 	}
+	bindControlScopes(out)
 	return out, nil
 }
 func isEdition2027ContextualKind(k Kind) bool {

@@ -350,6 +350,14 @@ type FnDecl struct {
 	ExternABI          string
 	Abstract, Override bool
 	Tok                Token
+
+	// Control metadata is populated by the parser after a complete source unit
+	// has been parsed. Keeping it on the AST node avoids hidden global registries
+	// while letting the control validator resolve same-unit functions and
+	// same-receiver methods without depending on checker implementation details.
+	controlOwner     string
+	controlFunctions map[string]*FnDecl
+	controlMethods   map[string]*FnDecl
 }
 
 func (*FnDecl) stmtNode()      {}
