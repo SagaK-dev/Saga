@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from saga.api import compile_source, parse_source
 from saga.control_report import (
+    analyze_control_file,
     analyze_control_source,
     build_control_report,
     render_control_report,
@@ -148,6 +151,67 @@ fn tick(error: decimal) -> decimal {
         self.assertEqual(report['verdict'], 'pass')
         self.assertEqual(report['language_check']['status'], 'not-run')
         self.assertIn('Language check: NOT-RUN', render_control_report(report))
+
+    def test_project_report_follows_namespaced_source_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = root / 'controller.saga'
+            module.write_text(
+                '''
+module controller
+
+@control_tick(1000, 200)
+fn tick(error: decimal) -> decimal {
+    return error * 0.5
+}
+'''.strip() + '\n',
+                encoding='utf-8',
+            )
+            main = root / 'main.saga'
+            main.write_text('use "controller.saga" as ctrl\nprint(1)\n', encoding='utf-8')
+
+            report = analyze_control_file(main)
+
+            self.assertEqual(report['verdict'], 'pass')
+            self.assertEqual(report['analysis_scope'], 'loaded-program')
+            self.assertEqual(len(report['source_units']), 2)
+            tick = next(item for item in report['control_functions'] if item['name'] == 'ctrl.tick')
+            self.assertEqual(Path(tick['file']).name, 'controller.saga')
+            self.assertEqual(tick['timing']['rate_hz'], 1000)
+            self.assertIn('Source units: 2', render_control_report(report))
+
+    def test_project_load_failure_keeps_module_control_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = root / 'controller.saga'
+            module.write_text(
+                '''
+module controller
+
+@control_tick(1000, 200)
+fn tick(error: decimal) -> decimal {
+    var value = error
+    while value < 1.0 {
+        value = value + 0.1
+    }
+    return value
+}
+'''.strip() + '\n',
+                encoding='utf-8',
+            )
+            main = root / 'main.saga'
+            main.write_text('use "controller.saga" as ctrl\nprint(1)\n', encoding='utf-8')
+
+            report = analyze_control_file(main)
+
+            self.assertEqual(report['verdict'], 'fail')
+            self.assertEqual(report['analysis_scope'], 'entry-only-after-load-failure')
+            self.assertEqual(report['language_check']['status'], 'fail')
+            issue = next(item for item in report['issues'] if item['code'] == 'SAGA-C477')
+            self.assertEqual(Path(issue['file']).name, 'controller.saga')
+            bounded = next(item for item in report['checks'] if item['id'] == 'bounded-work')
+            self.assertEqual(bounded['status'], 'fail')
+            self.assertIn('controller.saga', render_control_report(report))
 
     def test_non_control_program_is_not_misrepresented_as_safe(self):
         report = analyze_control_source(
