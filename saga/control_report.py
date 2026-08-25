@@ -313,7 +313,7 @@ def analyze_control_file(path: str | Path) -> dict[str, Any]:
         )
         return report
 
-    source_units = [str(item) for item in loaded.source_units]
+    source_units = [str(item) for item in loaded.files]
     return build_control_report(
         loaded.program,
         str(loaded.entry),
