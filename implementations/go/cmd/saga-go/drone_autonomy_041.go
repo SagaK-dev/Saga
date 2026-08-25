@@ -172,18 +172,27 @@ func (m *droneLinkMonitor) observe(seq int, lat float64) error {
 	} else {
 		m.Latency = m.Alpha*lat + (1-m.Alpha)*m.Latency
 	}
-	if m.HasLast {
-		d := (seq - m.Last) & 255
-		if d == 0 {
-			m.Duplicates++
-		} else if d > 1 && d < 128 {
-			m.Lost += d - 1
-		} else if d >= 128 {
-			m.OutOfOrder++
-		}
+	if !m.HasLast {
+		m.Last = seq
+		m.HasLast = true
+		return nil
 	}
-	m.Last = seq
-	m.HasLast = true
+
+	d := (seq - m.Last) & 255
+	switch {
+	case d == 0:
+		m.Duplicates++
+		// A duplicate does not advance the accepted stream sequence.
+	case d < 128:
+		if d > 1 {
+			m.Lost += d - 1
+		}
+		m.Last = seq
+	default:
+		m.OutOfOrder++
+		// Older packets are observations only; retaining Last prevents a later
+		// in-order packet from being counted as a fresh loss gap.
+	}
 	return nil
 }
 func (m *droneLinkMonitor) stats() string {
