@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from saga.api import parse_source
-from saga.control_report import build_control_report, render_control_report
+from saga.control_report import build_control_report, render_control_report, render_control_report_html
 
 
 class ControlReport053Tests(unittest.TestCase):
@@ -35,6 +35,11 @@ fn tick(error: decimal) -> decimal {
         self.assertEqual(tick['timing']['budget_percent'], 70.0)
         self.assertIn('PASS', render_control_report(report))
 
+        html = render_control_report_html(report)
+        self.assertIn('CONTROL PROFILE PASS', html)
+        self.assertIn('20,000 Hz', html)
+        self.assertIn('70.0%', html)
+
     def test_report_keeps_actionable_control_violation(self):
         program = parse_source(
             '''
@@ -59,6 +64,10 @@ fn tick(error: decimal) -> decimal {
         self.assertIn('SAGA-C492', rendered)
         self.assertIn('fix:', rendered)
 
+        html = render_control_report_html(report)
+        self.assertIn('REVIEW NEEDED', html)
+        self.assertIn('SAGA-C492', html)
+
     def test_non_control_program_is_not_misrepresented_as_safe(self):
         program = parse_source('fn add(a: int, b: int) -> int { return a + b }', '<ordinary>')
         report = build_control_report(program, '<ordinary>')
@@ -66,6 +75,7 @@ fn tick(error: decimal) -> decimal {
         self.assertEqual(report['verdict'], 'not-applicable')
         self.assertEqual(report['control_functions'], [])
         self.assertIn('No @control_tick', render_control_report(report))
+        self.assertIn('NO CONTROL SURFACE', render_control_report_html(report))
 
 
 if __name__ == '__main__':
