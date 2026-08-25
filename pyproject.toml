@@ -43,6 +43,7 @@ all = ["websocket-client", "cryptography", "Pillow", "opencv-python", "pygame", 
 
 [project.scripts]
 saga = "saga.cli:main"
+saga-control-report = "saga.control_report:main"
 
 [tool.setuptools.packages.find]
 include = ["saga*"]
