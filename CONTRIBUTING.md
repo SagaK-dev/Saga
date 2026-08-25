@@ -48,6 +48,7 @@ Run at least:
 python -m compileall -q saga tools
 python -m unittest \
   tests.test_machine_drone_focus_053 \
+  tests.test_control_report_053 \
   tests.test_machine_control_028 \
   tests.test_machine_control_036 \
   tests.test_drone_control_040 \
