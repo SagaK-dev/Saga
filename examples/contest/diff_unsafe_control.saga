@@ -1,0 +1,8 @@
+use machine
+
+@control_tick(1000, 200)
+fn current_tick(error: decimal) -> decimal {
+    let sampled_at = machine.monotonic_ns()
+    print(sampled_at)
+    return error * 0.5
+}
