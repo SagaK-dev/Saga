@@ -6,6 +6,9 @@ permissions:
 on:
   workflow_dispatch:
 
+env:
+  GOMOBILE_VERSION: v0.0.0-20260730202154-c700fe717e6e
+
 jobs:
   android-build:
     runs-on: ubuntu-24.04
@@ -23,8 +26,8 @@ jobs:
       - run: python -m pip install -e .
       - name: Install Android SDK components
         run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0' 'ndk;28.2.13676358'
-      - name: Install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@latest && go install golang.org/x/mobile/cmd/gobind@latest && "$(go env GOPATH)/bin/gomobile" init
+      - name: Install pinned gomobile tools
+        run: go install golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION} && go install golang.org/x/mobile/cmd/gobind@${GOMOBILE_VERSION} && "$(go env GOPATH)/bin/gomobile" init
       - name: Generate Android application and runtime
         run: saga mobile android examples/learning/01_foundation.saga --output /tmp/saga-android --application-id dev.saga.qualification
       - name: Build Standard Core AAR
@@ -45,8 +48,8 @@ jobs:
           go-version: '1.26.x'
           cache-dependency-path: implementations/go/go.mod
       - run: python -m pip install -e .
-      - name: Install gomobile
-        run: go install golang.org/x/mobile/cmd/gomobile@latest && go install golang.org/x/mobile/cmd/gobind@latest && "$(go env GOPATH)/bin/gomobile" init
+      - name: Install pinned gomobile tools
+        run: go install golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION} && go install golang.org/x/mobile/cmd/gobind@${GOMOBILE_VERSION} && "$(go env GOPATH)/bin/gomobile" init
       - name: Generate iOS runtime
         run: saga mobile ios examples/learning/01_foundation.saga --output /tmp/saga-ios --bundle-id dev.saga.qualification
       - name: Build real iOS XCFramework
