@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 from typing import Any
+
+
+def _short_file(value: Any) -> str:
+    text = str(value or "")
+    if text.startswith("<"):
+        return text
+    return Path(text).name
 
 
 def _function_card(function: dict[str, Any]) -> str:
     name = escape(str(function["name"]))
     line = int(function["line"])
+    source = escape(_short_file(function.get("file")))
     role = "周期制御" if function["role"] == "tick" else "検査済みヘルパー"
     timing = function.get("timing")
     timing_html = ""
@@ -31,7 +40,7 @@ def _function_card(function: dict[str, Any]) -> str:
 
     return f"""
     <article class="card">
-      <div class="card-title"><code>{name}</code><span>{role} · line {line}</span></div>
+      <div class="card-title"><code>{name}</code><span>{role} · {source}:{line}</span></div>
       {timing_html}
     </article>
     """
@@ -62,6 +71,7 @@ def _issues(report: dict[str, Any]) -> str:
     if language.get("status") == "fail" and diagnostic:
         duplicate = any(
             item["code"] == diagnostic["code"]
+            and item.get("file") == diagnostic.get("file")
             and item["line"] == diagnostic["line"]
             and item["column"] == diagnostic["column"]
             for item in items
@@ -76,10 +86,11 @@ def _issues(report: dict[str, Any]) -> str:
     for item in items:
         prefix = "Saga言語検査" if item.get("language_issue") else "制御プロファイル"
         hint = escape(str(item.get("hint") or "確認してください"))
+        location = f"{escape(_short_file(item.get('file')))}:{int(item['line'])}:{int(item['column'])}"
         rendered.append(
             f"""
             <article class="issue">
-              <div><code>{escape(str(item['code']))}</code><span>{prefix} · line {int(item['line'])}:{int(item['column'])}</span></div>
+              <div><code>{escape(str(item['code']))}</code><span>{prefix} · {location}</span></div>
               <p>{escape(str(item['message']))}</p>
               <small>修正案: {hint}</small>
             </article>
@@ -97,6 +108,17 @@ def _language_badge(report: dict[str, Any]) -> str:
     }.get(status, f"LANGUAGE CHECK {str(status).upper()}")
     css = {"pass": "pass", "fail": "fail", "not-run": "na"}.get(status, "na")
     return f'<span class="status {css}">{text}</span>'
+
+
+def _analysis_notice(report: dict[str, Any]) -> str:
+    scope = report.get("analysis_scope", "program")
+    if scope != "entry-only-after-load-failure":
+        return ""
+    return (
+        '<div class="notice danger"><strong>Project analysis is incomplete.</strong> '
+        '依存ソースの読み込みまたは言語検査に失敗したため、表示中の制御サーフェスはエントリファイルで確認できた範囲だけです。'
+        '診断は保持しますが、このレポートをプロジェクト全体のPASS根拠にはできません。</div>'
+    )
 
 
 def render_control_report_html(report: dict[str, Any]) -> str:
@@ -120,12 +142,22 @@ def render_control_report_html(report: dict[str, Any]) -> str:
 
     timing = report.get("timing_contract", {})
     timing_notice = ""
-    if timing.get("status") in {"not-declared", "partial"}:
+    timing_status = timing.get("status")
+    if timing_status in {"not-declared", "partial"}:
         timing_notice = (
             '<div class="notice"><strong>Timing contract is incomplete.</strong> '
             f"周期・実行予算を宣言しているtickは {int(timing.get('declared_ticks', 0))}/"
             f"{int(timing.get('total_ticks', 0))} です。PASSは周波数・WCETの保証を意味しません。</div>"
         )
+    elif timing_status in {"invalid", "partial-invalid"}:
+        timing_notice = (
+            '<div class="notice danger"><strong>Timing contract is invalid.</strong> '
+            f"不正な周期契約を持つtickが {int(timing.get('invalid_ticks', 0))} 件あります。"
+            '表示された数値を実行周期の根拠として使用しないでください。</div>'
+        )
+
+    source_units = report.get("source_units", [])
+    source_summary = f" · {len(source_units)} source unit(s)" if len(source_units) > 1 else ""
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -153,7 +185,7 @@ section > h2 {{ margin: 0 0 12px; font-size: 18px; letter-spacing: -.02em; }}
 .card, .issue, .checks {{ background: white; border: 1px solid #e5e7eb; border-radius: 18px; padding: 20px; box-shadow: 0 8px 24px rgba(15, 23, 42, .045); }}
 .card-title {{ display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }}
 .card-title code {{ font-size: 18px; font-weight: 800; }}
-.card-title span {{ color: #64748b; font-size: 12px; }}
+.card-title span {{ color: #64748b; font-size: 12px; text-align: right; }}
 .timing {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }}
 .timing div {{ display: flex; flex-direction: column; gap: 3px; }}
 .timing strong {{ font-size: 22px; }}
@@ -172,11 +204,12 @@ section > h2 {{ margin: 0 0 12px; font-size: 18px; letter-spacing: -.02em; }}
 .checks .noted {{ background: #ffedd5; color: #9a3412; }}
 .checks .covered {{ background: #e5e7eb; color: #475569; }}
 .issue {{ margin-bottom: 10px; border-left: 5px solid #dc2626; }}
-.issue div {{ display: flex; gap: 10px; align-items: baseline; }}
+.issue div {{ display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }}
 .issue code {{ font-weight: 800; color: #991b1b; }}
 .issue div span, .issue small {{ color: #64748b; }}
 .issue p {{ margin: 10px 0 8px; }}
 .notice {{ margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #fff7ed; color: #9a3412; font-size: 13px; line-height: 1.55; }}
+.notice.danger {{ background: #fef2f2; color: #991b1b; }}
 .boundary {{ padding: 16px 18px; border-radius: 14px; background: #eef2ff; color: #3730a3; font-size: 13px; line-height: 1.55; }}
 footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
 @media (max-width: 560px) {{ .hero {{ padding: 24px; }} .timing {{ grid-template-columns: 1fr; }} }}
@@ -185,7 +218,7 @@ footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
 <body>
 <main>
   <header class="hero">
-    <p class="eyebrow">Saga {escape(str(report['implementation_version']))} · explainable machine control</p>
+    <p class="eyebrow">Saga {escape(str(report['implementation_version']))} · explainable machine control{source_summary}</p>
     <h1>Control<br>Report</h1>
     <div class="hero-row">
       <span class="status {status_class}">{status_text}</span>
@@ -194,6 +227,7 @@ footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
     </div>
   </header>
 
+  {_analysis_notice(report)}
   {timing_notice}
 
   <section>
