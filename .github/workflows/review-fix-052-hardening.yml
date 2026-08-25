@@ -1,0 +1,130 @@
+name: Saga 0.52 review hardening
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.action == 'opened'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: implementations/go/go.mod
+      - name: Install native test dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang llvm
+      - name: Apply reviewed fixes
+        run: python tools/apply_review_fixes_052.py
+      - name: Format Go changes
+        run: gofmt -w implementations/go/cmd/saga-go/types.go implementations/go/cmd/saga-go/checker.go implementations/go/cmd/saga-go/generic_abstractions_052_test.go
+      - name: Install Saga
+        run: python -m pip install -e .
+      - name: Compile Python sources
+        run: python -m compileall -q saga tools tests
+      - name: Run Saga 0.52 and retained Python regression
+        run: >-
+          python -m unittest
+          tests.test_generic_abstractions_052
+          tests.test_generic_adts_051
+          tests.test_control_ga_050
+          tests.test_production_industrial_049
+          tests.test_virtual_hil_048
+          tests.test_advanced_motion_047
+          tests.test_precision_machine_046
+          tests.test_language_synthesis_045
+      - name: Run Go regression
+        working-directory: implementations/go
+        run: go test ./...
+      - name: Run Go vet
+        working-directory: implementations/go
+        run: go vet ./...
+      - name: Commit validated source changes
+        run: |
+          git config user.name "Saga review maintainer"
+          git config user.email "actions@users.noreply.github.com"
+          git add saga implementations/go tests docs README.md CHANGELOG.md pyproject.toml
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+          else
+            git commit -m "Harden Saga 0.52 generic abstractions"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
+
+  count-lines:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 1
+      - name: Count tracked source lines
+        shell: python
+        run: |
+          import json
+          import pathlib
+          import subprocess
+
+          excluded = {
+              "tools/apply_review_fixes_052.py",
+              ".github/workflows/review-fix-052-hardening.yml",
+          }
+          source_ext = {
+              ".py", ".go", ".saga", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp",
+              ".rs", ".java", ".kt", ".kts", ".swift", ".m", ".mm", ".js", ".ts",
+              ".sh", ".ps1",
+          }
+          files = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          counts = {
+              "python": 0,
+              "go": 0,
+              "saga": 0,
+              "other_source": 0,
+              "source_total_including_tests": 0,
+              "test_source": 0,
+              "implementation_source_excluding_tests": 0,
+              "tracked_utf8_text_total": 0,
+          }
+          for name in files:
+              if name in excluded:
+                  continue
+              path = pathlib.Path(name)
+              try:
+                  data = path.read_bytes()
+                  if b"\x00" in data:
+                      continue
+                  text = data.decode("utf-8")
+              except (OSError, UnicodeDecodeError):
+                  continue
+              lines = len(text.splitlines())
+              counts["tracked_utf8_text_total"] += lines
+              ext = path.suffix.lower()
+              if ext not in source_ext:
+                  continue
+              counts["source_total_including_tests"] += lines
+              if ext == ".py":
+                  counts["python"] += lines
+              elif ext == ".go":
+                  counts["go"] += lines
+              elif ext == ".saga":
+                  counts["saga"] += lines
+              else:
+                  counts["other_source"] += lines
+              is_test = name.startswith("tests/") or name.endswith("_test.go")
+              if is_test:
+                  counts["test_source"] += lines
+              else:
+                  counts["implementation_source_excluding_tests"] += lines
+          print("SAGA_LOC_JSON=" + json.dumps(counts, sort_keys=True))
