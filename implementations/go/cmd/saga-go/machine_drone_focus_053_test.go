@@ -51,11 +51,19 @@ drone.health_update(flight, true, true, ` + battery + `, true, true, true)
 
 func TestMachineDroneFocus053RejectsImpossibleCoordinates(t *testing.T) {
 	cases := []string{
-		`use drone\nlet f = drone.geofence(91.0, 139.0, 100.0, 0.0, 120.0)`,
-		`use drone\nlet f = drone.geofence(35.0, 139.0, 100.0, 0.0, 120.0)\nprint(drone.geofence_contains(f, 35.0, 181.0, 10.0))`,
-		`use drone\nlet m = drone.mission()\ndrone.mission_add(m, -91.0, 139.0, 10.0, 2.0, 0.0)`,
-		`use drone\nlet r = drone.rtl(35.0, 181.0, 5.0, 30.0, 2.0)`,
-		`use drone\nlet r = drone.rtl(35.0, 139.0, 5.0, 30.0, 2.0)\nprint(drone.rtl_target_json(r, 91.0, 139.0, 10.0))`,
+		`use drone
+let f = drone.geofence(91.0, 139.0, 100.0, 0.0, 120.0)`,
+		`use drone
+let f = drone.geofence(35.0, 139.0, 100.0, 0.0, 120.0)
+print(drone.geofence_contains(f, 35.0, 181.0, 10.0))`,
+		`use drone
+let m = drone.mission()
+drone.mission_add(m, -91.0, 139.0, 10.0, 2.0, 0.0)`,
+		`use drone
+let r = drone.rtl(35.0, 181.0, 5.0, 30.0, 2.0)`,
+		`use drone
+let r = drone.rtl(35.0, 139.0, 5.0, 30.0, 2.0)
+print(drone.rtl_target_json(r, 91.0, 139.0, 10.0))`,
 	}
 	for _, src := range cases {
 		if _, err := runSagaForTest(t, src); err == nil {
