@@ -100,7 +100,7 @@ def validate_control_tick(fn: ast.FunctionDecl) -> list[ControlProfileViolation]
 
     control_annotations = [a for a in fn.annotations if a.name.lexeme == "control_tick"]
     annotation = control_annotations[0] if control_annotations else None
-    if annotation is not None:
+    if annotation is not None and annotation.arguments:
         if len(annotation.arguments) != 2:
             out.append(ControlProfileViolation(
                 annotation.name, "SAGA-C480",
