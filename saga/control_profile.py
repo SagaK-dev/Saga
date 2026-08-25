@@ -219,8 +219,15 @@ def _control_local_names(fn: ast.FunctionDecl) -> set[str]:
     return names
 
 
-def _control_surface_violations(fn: ast.FunctionDecl, functions: dict[str, ast.FunctionDecl]) -> tuple[list[ControlProfileViolation], set[str]]:
-    """Return local violations and direct user-function callees for GA control code."""
+_ControlTarget = tuple[str, ast.FunctionDecl]
+
+
+def _control_surface_violations(
+    fn: ast.FunctionDecl,
+    user_functions: dict[str, _ControlTarget],
+) -> tuple[list[ControlProfileViolation], set[str]]:
+    """Return local violations and statically resolved user-function callees."""
+
     out: list[ControlProfileViolation] = []
     callees: set[str] = set()
     fallback = fn.name
@@ -245,9 +252,9 @@ def _control_surface_violations(fn: ast.FunctionDecl, functions: dict[str, ast.F
             if not name:
                 out.append(ControlProfileViolation(tok, "SAGA-C489", "制御関数では間接/動的呼び出しを使用できません", "呼び出し先を静的に名前解決できる関数へ固定してください"))
                 continue
-            if name in functions:
-                callees.add(name)
-                target = functions[name]
+            if name in user_functions:
+                target_key, target = user_functions[name]
+                callees.add(target_key)
                 if not (is_control_safe(target) or is_control_tick(target)):
                     out.append(ControlProfileViolation(tok, "SAGA-C490", f"制御関数から未検証のユーザー関数 '{name}' を呼べません", "呼び出し先を @control_safe として検証するか、tick外で計算してください"))
                 continue
@@ -260,56 +267,112 @@ def _control_surface_violations(fn: ast.FunctionDecl, functions: dict[str, ast.F
                 if name not in _CONTROL_SAFE_MACHINE_EXACT or leaf.startswith(_CONTROL_UNSAFE_MACHINE_PREFIXES):
                     out.append(ControlProfileViolation(tok, "SAGA-C492", f"Production GA制御領域では '{name}' は許可されていません", "raw/blocking/time-dependent I/Oをtick外へ分離し、timestamped inputとcommand outputを渡してください"))
                 continue
-            out.append(ControlProfileViolation(tok, "SAGA-C493", f"Production GA制御領域では外部モジュール呼び出し '{name}' は許可されていません", "I/O・network・vision処理は周期制御の外側へ分離してください"))
+            out.append(ControlProfileViolation(tok, "SAGA-C493", f"Production GA制御領域では外部/未解決呼び出し '{name}' は許可されていません", "同一クラスのhelperは self.helper(...) として @control_safe を付け、I/O・network・vision処理は周期制御の外側へ分離してください"))
     return out, callees
 
 
-def validate_control_program(program: ast.Program) -> list[ControlProfileViolation]:
-    """Whole-program Production-GA validation for control-critical functions.
+def _validate_control_function_surface(fn: ast.FunctionDecl) -> list[ControlProfileViolation]:
+    out: list[ControlProfileViolation] = []
+    if is_control_tick(fn):
+        out.extend(validate_control_tick(fn))
+    if is_control_safe(fn) and fn.async_:
+        out.append(ControlProfileViolation(fn.name, "SAGA-C484", "@control_safe 関数を async にすることはできません", "周期制御から呼ばれるhelperは同期・有界・決定的にしてください"))
+    if is_control_safe(fn) and not is_control_tick(fn):
+        shadow = ast.FunctionDecl(
+            fn.keyword, fn.name, fn.parameters, fn.return_type, fn.body, fn.expression_body,
+            fn.type_params, [ast.Annotation(fn.name, [])], fn.abstract, fn.override, fn.visibility, fn.async_,
+        )
+        shadow.annotations[0].name = Token(fn.name.kind, "control_tick", None, fn.name.line, fn.name.column, fn.name.filename)
+        out.extend(validate_control_tick(shadow))
+    return out
 
-    This includes the local ``@control_tick`` restrictions as well as transitive
-    helper, recursion, indirect-call, shared-mutation and hidden-I/O checks.
-    Older non-production code remains source-compatible unless it opts into
-    ``@control_safe`` or ``@control_tick``.
+
+def _control_node_name(key: str) -> str:
+    if key.startswith("fn:"):
+        return key[3:]
+    if key.startswith("method:"):
+        return key[7:]
+    return key
+
+
+def validate_control_program(program: ast.Program) -> list[ControlProfileViolation]:
+    """Whole-program Production-GA validation for control-critical code.
+
+    Top-level functions and class methods use the same control contract. A
+    control method may call an explicitly checked method on the same receiver as
+    ``self.helper(...)``. Calls through arbitrary objects remain outside the
+    statically proven control graph and therefore fail closed.
     """
-    functions = {s.name.lexeme: s for s in program.statements if isinstance(s, ast.FunctionDecl)}
+
+    top_level = {
+        statement.name.lexeme: statement
+        for statement in program.statements
+        if isinstance(statement, ast.FunctionDecl)
+    }
+    top_targets: dict[str, _ControlTarget] = {
+        name: (f"fn:{name}", fn) for name, fn in top_level.items()
+    }
+
+    nodes: dict[str, ast.FunctionDecl] = {}
+    call_maps: dict[str, dict[str, _ControlTarget]] = {}
+
+    for name, fn in top_level.items():
+        key = f"fn:{name}"
+        nodes[key] = fn
+        call_maps[key] = top_targets
+
+    for statement in program.statements:
+        if not isinstance(statement, ast.ClassDecl):
+            continue
+        class_name = statement.name.lexeme
+        own_methods = {method.name.lexeme: method for method in statement.methods}
+        method_targets: dict[str, _ControlTarget] = dict(top_targets)
+        method_targets.update({
+            f"self.{name}": (f"method:{class_name}.{name}", method)
+            for name, method in own_methods.items()
+        })
+        for name, method in own_methods.items():
+            key = f"method:{class_name}.{name}"
+            nodes[key] = method
+            call_maps[key] = method_targets
+
     graph: dict[str, set[str]] = {}
     out: list[ControlProfileViolation] = []
-    for name, fn in functions.items():
+    for key, fn in nodes.items():
         if not (is_control_tick(fn) or is_control_safe(fn)):
             continue
-        if is_control_tick(fn):
-            out.extend(validate_control_tick(fn))
-        if is_control_safe(fn) and fn.async_:
-            out.append(ControlProfileViolation(fn.name, "SAGA-C484", "@control_safe 関数を async にすることはできません", "周期制御から呼ばれるhelperは同期・有界・決定的にしてください"))
-        # Reuse the proven 0.47 restricted source surface for helpers too.
-        if is_control_safe(fn) and not is_control_tick(fn):
-            shadow = ast.FunctionDecl(
-                fn.keyword, fn.name, fn.parameters, fn.return_type, fn.body, fn.expression_body,
-                fn.type_params, [ast.Annotation(fn.name, [])], fn.abstract, fn.override, fn.visibility, fn.async_,
-            )
-            # The synthetic annotation name is rewritten only for validation.
-            shadow.annotations[0].name = Token(fn.name.kind, "control_tick", None, fn.name.line, fn.name.column, fn.name.filename)
-            out.extend(validate_control_tick(shadow))
-        local, callees = _control_surface_violations(fn, functions)
+        out.extend(_validate_control_function_surface(fn))
+        local, callees = _control_surface_violations(fn, call_maps[key])
         out.extend(local)
-        graph[name] = {c for c in callees if c in functions and (is_control_safe(functions[c]) or is_control_tick(functions[c]))}
+        graph[key] = {
+            callee
+            for callee in callees
+            if callee in nodes and (is_control_safe(nodes[callee]) or is_control_tick(nodes[callee]))
+        }
 
     visiting: set[str] = set()
     visited: set[str] = set()
-    def dfs(name: str, path: list[str]) -> None:
-        if name in visiting:
-            cycle = path[path.index(name):] + [name] if name in path else path + [name]
-            fn = functions[name]
-            out.append(ControlProfileViolation(fn.name, "SAGA-C485", "Production GA制御呼び出しグラフに再帰があります: " + " -> ".join(cycle), "再帰を固定上限ループまたは反復primitiveへ変換してください"))
+
+    def dfs(key: str, path: list[str]) -> None:
+        if key in visiting:
+            cycle_keys = path[path.index(key):] + [key] if key in path else path + [key]
+            fn = nodes[key]
+            cycle = " -> ".join(_control_node_name(item) for item in cycle_keys)
+            out.append(ControlProfileViolation(
+                fn.name,
+                "SAGA-C485",
+                "Production GA制御呼び出しグラフに再帰があります: " + cycle,
+                "再帰を固定上限ループまたは反復primitiveへ変換してください",
+            ))
             return
-        if name in visited:
+        if key in visited:
             return
-        visiting.add(name)
-        for child in sorted(graph.get(name, ())):
-            dfs(child, path + [name])
-        visiting.remove(name)
-        visited.add(name)
-    for name in sorted(graph):
-        dfs(name, [])
+        visiting.add(key)
+        for child in sorted(graph.get(key, ())):
+            dfs(child, path + [key])
+        visiting.remove(key)
+        visited.add(key)
+
+    for key in sorted(graph):
+        dfs(key, [])
     return out
