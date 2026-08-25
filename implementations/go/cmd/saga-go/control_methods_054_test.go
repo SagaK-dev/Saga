@@ -17,14 +17,14 @@ func checkControlMethodSource054(src string) error {
 	return NewChecker().Check(stmts)
 }
 
-func requireControlDiagnostic054(t *testing.T, src, diagnostic string) {
+func requireControlError054(t *testing.T, src, message string) {
 	t.Helper()
 	err := checkControlMethodSource054(src)
 	if err == nil {
-		t.Fatalf("expected %s, got success", diagnostic)
+		t.Fatalf("expected error containing %q, got success", message)
 	}
-	if !strings.Contains(err.Error(), diagnostic) {
-		t.Fatalf("expected %s, got %v", diagnostic, err)
+	if !strings.Contains(err.Error(), message) {
+		t.Fatalf("expected error containing %q, got %v", message, err)
 	}
 }
 
@@ -44,18 +44,18 @@ class Controller() {
 }
 
 func TestControlMethod054RejectsUncheckedSameReceiverHelper(t *testing.T) {
-	requireControlDiagnostic054(t, `
+	requireControlError054(t, `
 class Controller() {
     fn helper(value: int) -> int { return value }
 
     @control_tick(1000, 500)
     fn tick(value: int) -> int { return self.helper(value) }
 }
-`, "SAGA-C490")
+`, "unverified user function self.helper")
 }
 
 func TestControlMethod054RestrictsCheckedMethodHelper(t *testing.T) {
-	requireControlDiagnostic054(t, `
+	requireControlError054(t, `
 class Controller() {
     @control_safe
     fn helper(value: int) -> int {
@@ -66,11 +66,11 @@ class Controller() {
     @control_tick(1000, 500)
     fn tick(value: int) -> int { return self.helper(value) }
 }
-`, "SAGA-C477")
+`, "cannot use while")
 }
 
 func TestControlMethod054RejectsMethodRecursion(t *testing.T) {
-	requireControlDiagnostic054(t, `
+	requireControlError054(t, `
 class Controller() {
     @control_safe
     fn helper(value: int) -> int { return self.helper(value) }
@@ -78,7 +78,7 @@ class Controller() {
     @control_tick(1000, 500)
     fn tick(value: int) -> int { return self.helper(value) }
 }
-`, "SAGA-C485")
+`, "control call graph cannot be recursive")
 }
 
 func TestControlMethod054AllowsCheckedSameUnitFunction(t *testing.T) {
@@ -97,11 +97,11 @@ class Controller() {
 }
 
 func TestControlMethod054EnforcesStandaloneSafeContract(t *testing.T) {
-	requireControlDiagnostic054(t, `
+	requireControlError054(t, `
 @control_safe
 fn helper(value: int) -> int {
     while false { }
     return value
 }
-`, "SAGA-C477")
+`, "cannot use while")
 }
