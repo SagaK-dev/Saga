@@ -28,6 +28,7 @@ jobs:
       - name: Run current language/control regression
         run: >-
           python -m unittest
+          tests.test_generic_abstractions_052
           tests.test_generic_adts_051
           tests.test_control_ga_050
           tests.test_production_industrial_049
