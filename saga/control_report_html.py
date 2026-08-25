@@ -23,6 +23,11 @@ def _function_card(function: dict[str, Any]) -> str:
         </div>
         <p class="meter-label">1周期の {timing['budget_percent']}% を実行予算として宣言</p>
         """
+    elif function["role"] == "tick":
+        timing_html = (
+            '<p class="timing-note"><strong>周期・実行予算は未宣言</strong><br>'
+            '互換形式の @control_tick です。制御プロファイル検査は行いますが、周波数や実行予算の主張はしません。</p>'
+        )
 
     return f"""
     <article class="card">
@@ -33,29 +38,65 @@ def _function_card(function: dict[str, Any]) -> str:
 
 
 def _check_list(report: dict[str, Any]) -> str:
-    passed = report["verdict"] == "pass"
-    symbol = "✓" if passed else "•"
-    marker_class = "checked" if passed else "covered"
-    return "".join(
-        f'<li><span class="{marker_class}" aria-hidden="true">{symbol}</span>{escape(str(item["label"]))}</li>'
-        for item in report["checks"]
-    )
+    symbols = {
+        "pass": ("✓", "checked", "違反なし"),
+        "fail": ("×", "failed", "要修正"),
+        "partial": ("!", "noted", "一部のみ宣言"),
+        "not-declared": ("!", "noted", "未宣言"),
+        "not-applicable": ("–", "covered", "対象外"),
+    }
+    rows: list[str] = []
+    for item in report["checks"]:
+        symbol, marker_class, label = symbols.get(item["status"], ("•", "covered", item["status"]))
+        rows.append(
+            f'<li><span class="{marker_class}" aria-hidden="true">{symbol}</span>'
+            f'<div>{escape(str(item["label"]))}<small>{escape(label)}</small></div></li>'
+        )
+    return "".join(rows)
 
 
 def _issues(report: dict[str, Any]) -> str:
-    if not report["issues"]:
+    items = list(report["issues"])
+    language = report.get("language_check", {})
+    diagnostic = language.get("diagnostic")
+    if language.get("status") == "fail" and diagnostic:
+        duplicate = any(
+            item["code"] == diagnostic["code"]
+            and item["line"] == diagnostic["line"]
+            and item["column"] == diagnostic["column"]
+            for item in items
+        )
+        if not duplicate:
+            items.append({**diagnostic, "language_issue": True})
+
+    if not items:
         return '<p class="quiet">検出された制御プロファイル違反はありません。</p>'
 
-    return "".join(
-        f"""
-        <article class="issue">
-          <div><code>{escape(str(item['code']))}</code><span>line {int(item['line'])}:{int(item['column'])}</span></div>
-          <p>{escape(str(item['message']))}</p>
-          <small>修正案: {escape(str(item['hint']))}</small>
-        </article>
-        """
-        for item in report["issues"]
-    )
+    rendered: list[str] = []
+    for item in items:
+        prefix = "Saga言語検査" if item.get("language_issue") else "制御プロファイル"
+        hint = escape(str(item.get("hint") or "確認してください"))
+        rendered.append(
+            f"""
+            <article class="issue">
+              <div><code>{escape(str(item['code']))}</code><span>{prefix} · line {int(item['line'])}:{int(item['column'])}</span></div>
+              <p>{escape(str(item['message']))}</p>
+              <small>修正案: {hint}</small>
+            </article>
+            """
+        )
+    return "".join(rendered)
+
+
+def _language_badge(report: dict[str, Any]) -> str:
+    status = report.get("language_check", {}).get("status", "not-run")
+    text = {
+        "pass": "LANGUAGE CHECK PASS",
+        "fail": "LANGUAGE CHECK FAIL",
+        "not-run": "LANGUAGE CHECK NOT RUN",
+    }.get(status, f"LANGUAGE CHECK {str(status).upper()}")
+    css = {"pass": "pass", "fail": "fail", "not-run": "na"}.get(status, "na")
+    return f'<span class="status {css}">{text}</span>'
 
 
 def render_control_report_html(report: dict[str, Any]) -> str:
@@ -63,13 +104,28 @@ def render_control_report_html(report: dict[str, Any]) -> str:
     status_text = {
         "pass": "CONTROL PROFILE PASS",
         "fail": "REVIEW NEEDED",
+        "invalid": "INVALID SAGA SOURCE",
         "not-applicable": "NO CONTROL SURFACE",
     }[verdict]
-    status_class = {"pass": "pass", "fail": "fail", "not-applicable": "na"}[verdict]
+    status_class = {
+        "pass": "pass",
+        "fail": "fail",
+        "invalid": "fail",
+        "not-applicable": "na",
+    }[verdict]
 
     cards = "".join(_function_card(item) for item in report["control_functions"])
     if not cards:
         cards = '<article class="card"><p>@control_tick / @control_safe は見つかりませんでした。</p></article>'
+
+    timing = report.get("timing_contract", {})
+    timing_notice = ""
+    if timing.get("status") in {"not-declared", "partial"}:
+        timing_notice = (
+            '<div class="notice"><strong>Timing contract is incomplete.</strong> '
+            f"周期・実行予算を宣言しているtickは {int(timing.get('declared_ticks', 0))}/"
+            f"{int(timing.get('total_ticks', 0))} です。PASSは周波数・WCETの保証を意味しません。</div>"
+        )
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -86,7 +142,7 @@ main {{ width: min(1040px, calc(100% - 32px)); margin: 32px auto 56px; }}
 .eyebrow {{ margin: 0 0 8px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; opacity: .72; }}
 h1 {{ margin: 0; font-size: clamp(34px, 7vw, 68px); line-height: .98; letter-spacing: -.045em; }}
 .hero-row {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 24px; }}
-.status {{ display: inline-flex; padding: 8px 12px; border-radius: 999px; font-weight: 800; font-size: 13px; letter-spacing: .04em; }}
+.status {{ display: inline-flex; padding: 8px 12px; border-radius: 999px; font-weight: 800; font-size: 12px; letter-spacing: .04em; }}
 .status.pass {{ background: #d1fae5; color: #065f46; }}
 .status.fail {{ background: #fee2e2; color: #991b1b; }}
 .status.na {{ background: #e5e7eb; color: #374151; }}
@@ -102,19 +158,25 @@ section > h2 {{ margin: 0 0 12px; font-size: 18px; letter-spacing: -.02em; }}
 .timing div {{ display: flex; flex-direction: column; gap: 3px; }}
 .timing strong {{ font-size: 22px; }}
 .timing span, .meter-label, .quiet {{ color: #64748b; font-size: 12px; }}
+.timing-note {{ margin: 18px 0 0; padding: 12px 14px; border-radius: 12px; background: #fff7ed; color: #9a3412; font-size: 12px; line-height: 1.55; }}
 .meter {{ height: 10px; margin-top: 18px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }}
 .meter span {{ display: block; height: 100%; background: #2563eb; border-radius: inherit; }}
 .meter-label {{ margin: 7px 0 0; }}
 .checks {{ list-style: none; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 18px; }}
 .checks li {{ display: flex; gap: 10px; align-items: start; }}
-.checks li span {{ display: inline-grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; font-weight: 900; }}
+.checks li > span {{ display: inline-grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; font-weight: 900; }}
+.checks li div {{ display: flex; flex-direction: column; gap: 2px; }}
+.checks li small {{ color: #64748b; font-size: 11px; }}
 .checks .checked {{ background: #d1fae5; color: #065f46; }}
+.checks .failed {{ background: #fee2e2; color: #991b1b; }}
+.checks .noted {{ background: #ffedd5; color: #9a3412; }}
 .checks .covered {{ background: #e5e7eb; color: #475569; }}
 .issue {{ margin-bottom: 10px; border-left: 5px solid #dc2626; }}
 .issue div {{ display: flex; gap: 10px; align-items: baseline; }}
 .issue code {{ font-weight: 800; color: #991b1b; }}
 .issue div span, .issue small {{ color: #64748b; }}
 .issue p {{ margin: 10px 0 8px; }}
+.notice {{ margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #fff7ed; color: #9a3412; font-size: 13px; line-height: 1.55; }}
 .boundary {{ padding: 16px 18px; border-radius: 14px; background: #eef2ff; color: #3730a3; font-size: 13px; line-height: 1.55; }}
 footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
 @media (max-width: 560px) {{ .hero {{ padding: 24px; }} .timing {{ grid-template-columns: 1fr; }} }}
@@ -127,9 +189,12 @@ footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
     <h1>Control<br>Report</h1>
     <div class="hero-row">
       <span class="status {status_class}">{status_text}</span>
+      {_language_badge(report)}
       <span class="file">{escape(str(report['file']))}</span>
     </div>
   </header>
+
+  {timing_notice}
 
   <section>
     <h2>制御サーフェス</h2>
@@ -137,7 +202,7 @@ footer {{ margin-top: 24px; color: #64748b; font-size: 12px; }}
   </section>
 
   <section>
-    <h2>静的に確認すること</h2>
+    <h2>静的に確認した項目</h2>
     <ul class="checks">{_check_list(report)}</ul>
   </section>
 
