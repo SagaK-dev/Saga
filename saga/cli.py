@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 
+from . import __version__
 from .api import SagaSession, compile_file, compile_source, parse_source, run_file, run_source
 from .errors import InternalLanguageError, SourceError, format_diagnostic
 from .diagnostics import all_specs, get_spec, localize_message, normalize_language
@@ -26,7 +27,7 @@ from .package import PackageError, build_lock, pack_project, verify_lock
 from .exitcodes import CONFORMANCE_FAILURE, INPUT_ERROR, INTERNAL_ERROR, for_error
 from .limits import RESOURCE_MODEL
 
-VERSION = "0.50.0"
+VERSION = __version__
 
 
 
@@ -270,7 +271,7 @@ def _run_standards(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="saga",
-        description="Beginner-first, exact-number, capability-secured programming language / 学びやすさ・正確さ・安全性を重視した言語",
+        description="Machine-control, robotics, and drone programming language with readable control code and explicit hardware authority / 読みやすい制御コードと明示的なハードウェア権限を重視した機械・ロボット・ドローン制御言語",
     )
     parser.add_argument("--version", action="version", version=f"Saga {VERSION}")
     parser.add_argument("--debug", action="store_true", help="内部例外のトレースバックを表示")
