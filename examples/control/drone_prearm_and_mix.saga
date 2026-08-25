@@ -1,0 +1,14 @@
+use machine
+use drone
+
+let safety = machine.safety_latch()
+let flight = drone.flight_manager(safety, 0.2)
+
+drone.health_update(flight, true, true, 0.8, true, true, true)
+drone.arm(flight, true)
+
+let mixer = drone.quad_x_mixer(0.05, 1.0)
+let motors = drone.mix_quad_x(mixer, 0.5, 0.0, 0.0, 0.0)
+
+print(drone.flight_allowed(flight))
+print(len(motors))
