@@ -27,6 +27,10 @@ class LoadedProgram:
 
 def read_source_file(path: str | Path, *, resource_budget: ResourceBudget | None = None) -> str:
     target = Path(path)
+    # Reject an already-oversized file before allocating its full contents.
+    # Recheck the bytes afterwards so growth between stat() and read_bytes()
+    # cannot bypass the deployment policy.
+    check_source_bytes(target.stat().st_size, str(target), resource_budget)
     data = target.read_bytes()
     check_source_bytes(len(data), str(target), resource_budget)
     try:
