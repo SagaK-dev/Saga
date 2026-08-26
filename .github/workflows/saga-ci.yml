@@ -35,10 +35,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python_bin="$(command -v python)"
           for test_file in tests/test_*.py; do
             pattern="$(basename "$test_file")"
             echo "::group::$pattern"
-            python -m unittest discover -s tests -p "$pattern"
+            # GitHub-hosted runners expose unshare(1) but prohibit unprivileged
+            # uid_map writes. These modules exercise Saga's strict Linux plugin
+            # sandbox, so give unshare the privilege needed to create its own
+            # user/mount/PID/network namespaces instead of weakening the runtime.
+            case "$pattern" in
+              test_ecosystem_011.py|test_fullstack.py|test_review_0101.py|test_security_010.py)
+                sudo "$python_bin" -m unittest discover -s tests -p "$pattern"
+                ;;
+              *)
+                "$python_bin" -m unittest discover -s tests -p "$pattern"
+                ;;
+            esac
             echo "::endgroup::"
           done
       - name: Run Python-Go Standard Core conformance
