@@ -297,19 +297,19 @@ print(stress())
 class Box(var value: int) {
     fn add(delta: int) -> int { self.value = self.value + delta; return self.value }
 }
-enum Result { Ok(int), Err(text) }
+enum Outcome { Ok(int), Err(text) }
 enum MaybeBox { Some(Box), None }
-fn make(okay: bool) -> Result {
-    if okay { return Result.Ok(42) }
-    return Result.Err("bad")
+fn make(okay: bool) -> Outcome {
+    if okay { return Outcome.Ok(42) }
+    return Outcome.Err("bad")
 }
 match make(true) {
-    case Result.Ok(number) { print(number) }
-    case Result.Err(message) { print(message) }
+    case Outcome.Ok(number) { print(number) }
+    case Outcome.Err(message) { print(message) }
 }
 match make(false) {
-    case Result.Ok(number) { print(number) }
-    case Result.Err(message) { print(message) }
+    case Outcome.Ok(number) { print(number) }
+    case Outcome.Err(message) { print(message) }
 }
 let item: MaybeBox = MaybeBox.Some(Box(5))
 let values: list[MaybeBox] = [item]
@@ -364,19 +364,19 @@ int main(void) {
             root = Path(td)
             model = self.write(root, "models.saga", r'''
 module models
-public enum Result { Ok(int), Err(text) }
-public fn make(value: int) -> Result = Result.Ok(value)
+public enum Outcome { Ok(int), Err(text) }
+public fn make(value: int) -> Outcome = Outcome.Ok(value)
 ''')
             main = self.write(root, "main.saga", r'''
 use "models.saga" as m
 match m.make(4) {
-    case m.Result.Ok(value) { print(value) }
-    case m.Result.Err(message) { print(0) }
+    case m.Outcome.Ok(value) { print(value) }
+    case m.Outcome.Err(message) { print(0) }
 }
 ''')
             first = build_native_codegen(main, root / "app", build_dir=root / "build")
             self.assertEqual(self.run_binary(first.output), ["4"])
-            model.write_text('module models\npublic enum Result { Ok(text), Err(text) }\npublic fn make(value: int) -> Result = Result.Ok("changed")\n', encoding='utf-8')
+            model.write_text('module models\npublic enum Outcome { Ok(text), Err(text) }\npublic fn make(value: int) -> Outcome = Outcome.Ok("changed")\n', encoding='utf-8')
             second = build_native_codegen(main, root / "app", build_dir=root / "build")
             self.assertIn("project/models.saga", second.compiled_objects)
             self.assertIn("project/main.saga", second.compiled_objects)
