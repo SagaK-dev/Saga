@@ -5,6 +5,28 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 GO=ROOT/'implementations/go/saga-go-standard'
 
+
+def checked_in_standard_core_case(name: str) -> str:
+    """Load one Saga source case from the checked-in Standard Core corpus.
+
+    The SH3 corpus is the inspectable source used by external/bootstrap
+    conformance work.  Reusing it here prevents a second exhaustive builtin
+    fixture from silently drifting or being omitted from source distributions.
+    """
+    corpus_path=ROOT/'conformance'/'sh3'/'standard-core-cases-1.0.json'
+    corpus=json.loads(corpus_path.read_text(encoding='utf-8'))
+    success=corpus.get('success')
+    if not isinstance(success,list):
+        raise RuntimeError(f'invalid Standard Core corpus: {corpus_path}')
+    matches=[item for item in success if isinstance(item,dict) and item.get('name')==name]
+    if len(matches)!=1:
+        raise RuntimeError(f"Standard Core corpus must contain exactly one '{name}' case")
+    source=matches[0].get('source')
+    if not isinstance(source,str) or not source.strip():
+        raise RuntimeError(f"Standard Core corpus case '{name}' has no Saga source")
+    return source
+
+
 CASES={
 'control': '''var total: int = 0\nfor n in 1..6 { if n == 3 { continue } total = total + n }\nvar x: int = 0\nwhile x < 3 { x = x + 1 }\nprint(total, x)''',
 'function_recursion': '''fn fact(n: int) -> int { if n <= 1 { return 1 } return n * fact(n - 1) }\nprint(fact(8))''',
@@ -43,9 +65,9 @@ let x:R[int]=IntBase(55)
 print(x.value())''',
 }
 # Exercise every Standard Core builtin plus representative OOP/generic/error
-# semantics in one observable cross-implementation program.  Keeping this as
-# a checked-in Saga source also makes it usable by external conformance labs.
-CASES['builtins_complete'] = (ROOT/'validation'/'standard_core_exhaustive_0.17.0.saga').read_text(encoding='utf-8')
+# semantics in one observable cross-implementation program.  The source lives
+# in the checked-in SH3 corpus so outside labs and this runner use one fixture.
+CASES['builtins_complete'] = checked_in_standard_core_case('builtins_complete')
 ERROR_CASES={
 'immutable': ('let x = 1\nx = 2','SAGA-T101'),
 'unknown': ('print(missing)','SAGA-T102'),
