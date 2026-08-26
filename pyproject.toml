@@ -33,13 +33,13 @@ Issues = "https://github.com/SagaK-dev/Saga/issues"
 dev = ["pytest>=8", "build>=1.2"]
 websocket = ["websocket-client"]
 crypto = ["cryptography"]
-media = ["Pillow", "opencv-python"]
+media = ["Pillow", "opencv-contrib-python"]
 game = ["pygame"]
 cloud = ["boto3"]
 iot = ["gpiozero"]
 bigdata = ["pyspark"]
 mobile = ["briefcase", "toga"]
-all = ["websocket-client", "cryptography", "Pillow", "opencv-python", "pygame", "boto3", "gpiozero", "pyspark", "briefcase", "toga"]
+all = ["websocket-client", "cryptography", "Pillow", "opencv-contrib-python", "pygame", "boto3", "gpiozero", "pyspark", "briefcase", "toga"]
 
 [project.scripts]
 saga = "saga.cli:main"
