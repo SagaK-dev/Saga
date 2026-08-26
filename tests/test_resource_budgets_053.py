@@ -31,6 +31,16 @@ class ResourceBudgetTests(unittest.TestCase):
         with self.assertRaises(LexLimitError):
             compile_source(source, resource_budget=ResourceBudget(max_source_bytes=8))
 
+    def test_file_source_byte_budget_checks_raw_file_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = Path(tmp) / "main.saga"
+            entry.write_text('print("0123456789")\n', encoding="utf-8")
+            with self.assertRaises(LexLimitError):
+                compile_file(
+                    str(entry),
+                    resource_budget=ResourceBudget(max_source_bytes=8),
+                )
+
     def test_token_budget_is_checked_before_parsing(self):
         with self.assertRaises(LexLimitError):
             compile_source("let value = 42", resource_budget=ResourceBudget(max_tokens=3))
