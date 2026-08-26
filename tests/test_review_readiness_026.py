@@ -28,10 +28,9 @@ class ReviewReadiness026Tests(unittest.TestCase):
     def test_spec_review_attestation_exact_bytes_contract(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        from tools.verify_spec_review_attestation import canonical, proposed_final_bytes
+        from tools.verify_spec_review_attestation import RELEASE, canonical, proposed_final_bytes
         candidate=ROOT/'SAGA_LANGUAGE_SPECIFICATION_1.0_FINAL_CANDIDATE.md'; grammar=ROOT/'spec/saga-1.0.ebnf'
-        from saga import __version__
-        payload={'schema':1,'target_release':__version__,'reviewer':{'name':'Reviewer','organization':'Independent Lab'},'completed_at_utc':'2026-08-10T10:00:00Z','candidate_sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'proposed_final_sha256':hashlib.sha256(proposed_final_bytes()).hexdigest(),'grammar_sha256':hashlib.sha256(grammar.read_bytes()).hexdigest(),'decision':'APPROVE','independent':True,'unresolved_normative_issues':0}
+        payload={'schema':1,'target_release':RELEASE,'reviewer':{'name':'Reviewer','organization':'Independent Lab'},'completed_at_utc':'2026-08-10T10:00:00Z','candidate_sha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'proposed_final_sha256':hashlib.sha256(proposed_final_bytes()).hexdigest(),'grammar_sha256':hashlib.sha256(grammar.read_bytes()).hexdigest(),'decision':'APPROVE','independent':True,'unresolved_normative_issues':0}
         key=Ed25519PrivateKey.generate(); pub=key.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw).hex()
         with tempfile.TemporaryDirectory() as td:
             td=Path(td); att=td/'att.json'; pk=td/'pub.hex'; out=td/'out.json'; pk.write_text(pub)
