@@ -157,16 +157,20 @@ spark.stop(s)
     def test_external_audit_attestation_verifier_contract(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-        from tools.verify_external_security_attestation import canonical
+        from tools.review_evidence import build_manifest
+        from tools.verify_external_security_attestation import RELEASE, canonical
         import hashlib
         root=Path(__file__).parents[1]
         with tempfile.TemporaryDirectory() as td0:
-            from saga import __version__
-            td=Path(td0); report=td/"report.md"; manifest=root/"release"/f"source-manifest-{__version__}.json"
+            td=Path(td0); report=td/"report.md"; manifest=td/"source-manifest-fixture.json"
             report.write_text("independent security review\n",encoding="utf-8")
-            self.assertTrue(manifest.is_file())
+            # The production verifier is intentionally frozen to the 0.50.0
+            # evidence line. Build an ephemeral manifest for this contract test
+            # rather than pretending the current development tree is that
+            # historical frozen source tree.
+            manifest.write_text(json.dumps(build_manifest(root),indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
             payload={
-                "schema":1, "target_release":__version__,
+                "schema":1, "target_release":RELEASE,
                 "source_manifest_sha256":hashlib.sha256(manifest.read_bytes()).hexdigest(),
                 "auditor":{"organization":"Independent Test Lab","reviewer":"Reviewer A"},
                 "completed_at_utc":"2026-08-10T10:00:00Z",
