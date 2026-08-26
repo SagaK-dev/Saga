@@ -4,11 +4,13 @@ from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from saga.errors import ParseError
 from saga.source_units import load_program
 from saga import native_codegen
 from saga import _native_codegen_impl
+from saga import plugin_host, sandbox
 
 
 class RepositoryHardeningTests(unittest.TestCase):
@@ -37,6 +39,31 @@ class RepositoryHardeningTests(unittest.TestCase):
         self.assertEqual(native_codegen.IMPLEMENTATION_FINGERPRINT, fingerprint)
         self.assertEqual(native_codegen.IMPLEMENTATION_VERSION, expected)
         self.assertEqual(_native_codegen_impl.IMPLEMENTATION_VERSION, expected)
+
+    def test_plugin_process_limit_is_applied_after_namespace_creation(self) -> None:
+        class FakeResource:
+            RLIMIT_CORE = 1
+            RLIMIT_NOFILE = 2
+            RLIMIT_NPROC = 3
+            RLIMIT_FSIZE = 4
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, tuple[int, int]]] = []
+
+            def setrlimit(self, kind: int, pair: tuple[int, int]) -> None:
+                self.calls.append((kind, pair))
+
+        outer = FakeResource()
+        with patch.object(sandbox, "_resource", outer):
+            sandbox._resource_limits()
+        self.assertNotIn(outer.RLIMIT_NPROC, [kind for kind, _ in outer.calls])
+        self.assertIn((outer.RLIMIT_NOFILE, (64, 64)), outer.calls)
+
+        child = FakeResource()
+        with patch.object(plugin_host, "resource", child):
+            plugin_host._limits()
+        self.assertIn((child.RLIMIT_NPROC, (8, 8)), child.calls)
+        self.assertIn((child.RLIMIT_NOFILE, (32, 32)), child.calls)
 
 
 if __name__ == "__main__":
