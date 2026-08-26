@@ -36,6 +36,16 @@ class CLIIdentity054Tests(unittest.TestCase):
         self.assertIn("Machine-control, robotics, and drone", help_text)
         self.assertIn("explicit hardware authority", help_text)
 
+    def test_root_release_notes_track_active_development_line(self):
+        root = Path(__file__).resolve().parents[1]
+        notes = (root / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+        versioned_notes = root / f"RELEASE_NOTES_{saga.__version__}.md"
+
+        self.assertIn(f"Current development line — Saga {saga.__version__}", notes)
+        self.assertIn(f"RELEASE_NOTES_{saga.__version__}.md", notes)
+        self.assertIn("Latest frozen release — Saga 0.50.0", notes)
+        self.assertTrue(versioned_notes.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
