@@ -26,6 +26,12 @@ On Linux where unprivileged user namespaces are available, strict plugin executi
 
 `--unsafe-processor` is an explicit compatibility escape hatch for trusted annotation processors and is not part of the secure plugin profile.
 
+## Untrusted-source resource policy
+
+Saga itself keeps the `no-fixed-normative-ceilings` resource model. Hosted services can separately pass a `ResourceBudget` to the Python API to bound source bytes, tokens, AST nodes, source-import depth, source-unit count, and interpreter steps without changing language conformance. `UNTRUSTED_RESOURCE_BUDGET` is a conservative reference preset for playgrounds, bots, and similar services; operators should tune or replace it for their workload.
+
+If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the stricter value so an execution request cannot relax the host policy. Omitting `resource_budget` preserves the previous unlimited-by-policy behavior. These application-level budgets complement rather than replace OS/process memory, CPU, filesystem, and network isolation.
+
 ## Whole-program OS sandbox
 
 `--os-sandbox strict` currently has a Linux implementation. It creates user/PID/IPC/UTS/network namespaces; file access remains governed by Saga's path capabilities. This is defense in depth, not a claim of a formally verified sandbox. Windows AppContainer/Job Object and macOS seatbelt implementations are not present in 0.10.0; strict mode on unsupported platforms refuses to run.
