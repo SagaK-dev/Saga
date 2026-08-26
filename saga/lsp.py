@@ -13,6 +13,7 @@ import pathlib
 import sys
 from urllib.parse import unquote, urlparse
 
+from . import __version__
 from .api import compile_source
 from .diagnostics import get_spec, localize_message, normalize_language
 from .errors import SourceError
@@ -34,7 +35,6 @@ def _lsp_character(line_text: str, scalar_index: int, encoding: str) -> int:
         return len(prefix.encode("utf-8"))
     if encoding == "utf-32":
         return len(prefix)
-    # LSP's historic/default position encoding is UTF-16 code units.
     return len(prefix.encode("utf-16-le")) // 2
 
 
@@ -146,8 +146,6 @@ class LspServer:
         params = message.get("params") or {}
         if method == "initialize":
             offered = (((params.get("capabilities") or {}).get("general") or {}).get("positionEncodings") or [])
-            # Prefer the historic/default UTF-16 encoding for maximum client compatibility.
-            # Use UTF-8/UTF-32 only when UTF-16 is explicitly unavailable.
             if offered and "utf-16" not in offered:
                 self.position_encoding = "utf-8" if "utf-8" in offered else ("utf-32" if "utf-32" in offered else "utf-16")
             else:
@@ -158,7 +156,7 @@ class LspServer:
                     "textDocumentSync": {"openClose": True, "change": 1, "save": {"includeText": True}},
                     "hoverProvider": False,
                 },
-                "serverInfo": {"name": "Saga Language Server", "version": "0.50.0"},
+                "serverInfo": {"name": "Saga Language Server", "version": __version__},
             })
         elif method == "initialized":
             pass
