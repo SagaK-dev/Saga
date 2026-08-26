@@ -5,6 +5,7 @@
 - Made the Production GA control contract apply consistently to class methods and same-receiver checked helpers in both the Python reference implementation and independent Go implementation, including recursive method-graph detection.
 - Unified Python CLI version reporting with the package version and aligned Python/Go CLI identity with Saga's machine-control focus.
 - Added permanent regression coverage for the 0.53 machine/drone control surface, control-method parity, Control Report behavior, and CLI identity.
+- Hardened the contest delivery path with clean wheel/sdist install evidence and a reproducible judge-facing demo; the safe/unsafe comparison is now mechanically verified as one added control-path line and uses the same file-based analysis path as `saga-control-report`.
 
 # Saga 0.52.0 (development)
 

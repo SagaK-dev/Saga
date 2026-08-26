@@ -7,8 +7,11 @@ Saga 0.53.0 is a development milestone that makes machine control, robotics, and
 - Repositions Saga as a control-systems language rather than a general-purpose language that happens to include control libraries.
 - Preserves the existing general-purpose language surface for tooling, telemetry, configuration, simulation, and application integration.
 - Promotes the existing `machine` and `drone` modules, control annotations, hardware capabilities, resource lifetime rules, and production qualification path as core language/toolchain concerns.
+- Adds an explainable Control Report that combines normal Saga language checking with source-level control-profile analysis, timing-contract summaries, stable diagnostics, and explicit evidence boundaries.
+- Applies the control contract consistently to class methods and checked helpers across the Python reference implementation and independent Go implementation.
 - Adds permanent machine/drone regression coverage to the core CI path for both the Python reference implementation and independent Go implementation.
-- Adds control-oriented examples and a dedicated design document describing what is software evidence versus target-specific physical evidence.
+- Adds a reproducible contest-facing safe/unsafe demo whose comparison is mechanically verified as exactly one added control-path line, plus clean wheel and source-distribution installation smoke tests.
+- Adds control-oriented examples and dedicated design/contest documents describing what is software evidence versus target-specific physical evidence.
 
 ## Existing machine-control capabilities carried into this line
 

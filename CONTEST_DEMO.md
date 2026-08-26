@@ -39,17 +39,24 @@ The command generates the source files, terminal/JSON/HTML Control Reports, and 
 Expected result:
 
 ```text
+single change: VERIFIED
 safe:   PASS
 unsafe: FAIL
 ```
 
-The command exits successfully only when the real Saga analyzer preserves that contrast and the unsafe case contains a `SAGA-C...` control diagnostic.
+The command exits successfully only when all three conditions remain true: the two sources differ by exactly one expected added line, the safe program passes, and the unsafe program fails with a real `SAGA-C...` control diagnostic.
 
 ## 3. What changed between the two programs?
 
-The safe case declares a 20 kHz periodic path with a 35 µs source-level budget and calls only a checked `@control_safe` helper.
+Both programs keep the same 20 kHz periodic path, the same 35 µs source-level budget, the same checked `@control_safe` helper, the same return expression, and the same output.
 
-The unsafe case performs `machine.monotonic_ns()` inside the periodic control path. The point of the demo is not that Saga can print a red screen; it is that the language checker follows the control boundary and explains the rejected operation with a stable diagnostic and source location.
+The unsafe program adds exactly one line inside the periodic control path:
+
+```saga
+let sampled_at = machine.monotonic_ns()
+```
+
+Removing that line reconstructs the safe source byte-for-byte. The point of the demo is not that Saga can print a red screen; it is that the normal file-based language/control analysis follows the control boundary and explains why that one added host-time operation is rejected, with a stable diagnostic and source location.
 
 ## 4. Two-minute presentation flow
 
@@ -63,7 +70,7 @@ Open `safe-report.html`. Point out the declared rate, period, budget, checked he
 
 **0:50-1:20 — one risky change**
 
-Show the unsafe source and `unsafe-report.html`. Point to the exact line and `SAGA-C...` diagnostic. Explain the suggested design: sample time or perform raw/external I/O outside the periodic path, then pass prepared state into the tick.
+Show the comparison section in `index.html`, then the unsafe source and `unsafe-report.html`. Point to the single added line and `SAGA-C...` diagnostic. Explain the suggested design: sample time or perform raw/external I/O outside the periodic path, then pass prepared state into the tick.
 
 **1:20-1:45 — prove it is language behavior**
 
@@ -74,7 +81,7 @@ saga check build/contest-demo/diff_safe_control.saga
 saga-control-report build/contest-demo/diff_safe_control.saga
 ```
 
-Then show `tests/test_contest_demo_054.py` and the green Core CI. The demo sources are regression-checked against the checked-in contest examples so the presentation cannot drift away from the tested version unnoticed.
+Then show `tests/test_contest_demo_054.py` and the green Core CI. The regression suite proves that removing the one risky line from the unsafe source reconstructs the safe source exactly, and that the generated demo sources match the checked-in contest examples.
 
 **1:45-2:00 — boundary and future**
 
@@ -92,9 +99,10 @@ saga-control-report build/contest-demo/diff_safe_control.saga
 Also confirm:
 
 - Core CI is green on the exact commit being submitted.
+- The demo prints `single change: VERIFIED` before the PASS/FAIL contrast.
 - `build/contest-demo/index.html` opens correctly at the presentation resolution.
 - The execution video uses the same commit/source as the submission.
-- The author can explain `@control_tick`, `@control_safe`, one rejected operation, and one design trade-off without reading a script.
+- The author can explain `@control_tick`, `@control_safe`, the one rejected operation, and one design trade-off without reading a script.
 - No claim goes beyond the evidence actually produced by the repository.
 
 ## Positioning
@@ -103,4 +111,4 @@ Do not present Saga as "a language that can do everything." Present the contest 
 
 > Saga makes machine-control code readable while letting the language explain when a periodic control path contains work that should not be there.
 
-That gives the judge one problem, one language idea, and one reproducible demonstration.
+That gives the judge one problem, one language idea, one controlled source change, and one reproducible demonstration.

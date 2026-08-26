@@ -1,7 +1,16 @@
 use machine
 
-@control_tick(1000, 200)
+@control_safe
+fn clamp_command(value: decimal) -> decimal {
+    if value > 1.0 { return 1.0 }
+    if value < -1.0 { return -1.0 }
+    return value
+}
+
+@control_tick(20000, 35)
 fn current_tick(error: decimal) -> decimal {
     let sampled_at = machine.monotonic_ns()
-    return error * 0.5
+    return clamp_command(error * 0.5)
 }
+
+print(current_tick(0.6))
