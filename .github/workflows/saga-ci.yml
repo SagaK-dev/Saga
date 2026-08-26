@@ -26,7 +26,8 @@ jobs:
             clang llvm \
             gstreamer1.0-tools \
             gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad
       - name: Enable unprivileged namespaces for strict sandbox regression
         shell: bash
         run: |
