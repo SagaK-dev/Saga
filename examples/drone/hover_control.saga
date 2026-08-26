@@ -1,0 +1,89 @@
+use machine
+use drone
+
+// SITL/software control example for a Quad-X vehicle.
+// Local frame: x = north, y = east, z = up.
+// The integration layer is expected to call the same control sequence every 5 ms (200 Hz).
+// This file computes normalized motor commands only; it does not open a real PWM/DShot device.
+
+fn clamp(value: decimal, low: decimal, high: decimal) -> decimal {
+    if value < low { return low }
+    if value > high { return high }
+    return value
+}
+
+let dt = 0.005
+let gravity = 9.81
+let hover_thrust = 0.52
+let max_tilt = 0.35
+
+// Flight authority is explicit. A real integration should continuously refresh these
+// observations and explicitly choose HOLD/RTL/LAND/DISARM when health changes.
+let safety = machine.safety_latch()
+let flight = drone.flight_manager(safety, 0.20)
+drone.health_update(flight, true, true, 0.87, true, true, true)
+drone.arm(flight, true)
+
+// Estimation and cascaded controllers.
+let estimator = drone.attitude_estimator(0.03)
+let position_ctl = drone.position_controller(1.2, 0.9, 0.08, 0.02, 3.0, 2.5)
+let attitude_ctl = drone.quaternion_controller(4.5, 4.5, 2.5, 3.0)
+let rate_ctl = drone.rate_controller(0.55, 0.08, 0.015, 0.35)
+let mixer = drone.quad_x_mixer(0.05, 1.0)
+
+// Hover target and one representative estimator/navigation sample.
+let target_position = [0.0, 0.0, 2.0]
+let feedforward_velocity = [0.0, 0.0, 0.0]
+let position = [0.25, -0.10, 1.65]
+let velocity = [0.10, -0.04, -0.15]
+let body_rates = [0.02, -0.01, 0.01]
+
+// One IMU + magnetometer update. Replace these samples with SITL or sensor data.
+let attitude_rpy = drone.attitude_update(
+    estimator,
+    body_rates[0], body_rates[1], body_rates[2],
+    0.0, 0.0, 9.81,
+    1.0, 0.0, 0.0,
+    dt
+)
+
+// Outer loop: position/velocity error -> desired local acceleration.
+let accel_sp = drone.position_step(
+    position_ctl,
+    target_position,
+    position,
+    velocity,
+    feedforward_velocity,
+    dt
+)
+
+// Near-hover acceleration-to-attitude conversion.
+// ax ~= g*pitch and ay ~= -g*roll for small angles around yaw = 0.
+let target_roll = clamp(-accel_sp[1] / gravity, -max_tilt, max_tilt)
+let target_pitch = clamp(accel_sp[0] / gravity, -max_tilt, max_tilt)
+let target_yaw = 0.0
+
+// Middle loop: quaternion attitude error -> body-rate setpoint.
+let target_q = drone.quaternion_from_rpy(target_roll, target_pitch, target_yaw)
+let current_q = drone.quaternion_from_rpy(attitude_rpy[0], attitude_rpy[1], attitude_rpy[2])
+let rate_sp = drone.quaternion_step(attitude_ctl, target_q, current_q)
+
+// Inner loop: body-rate error -> normalized roll/pitch/yaw torque commands.
+let torque = drone.rate_step(rate_ctl, rate_sp, body_rates, dt)
+
+// Vertical acceleration becomes collective thrust around the calibrated hover point.
+// hover_thrust must be identified for the actual airframe before physical flight.
+let thrust = clamp(hover_thrust * (1.0 + accel_sp[2] / gravity), 0.15, 0.85)
+let motors = drone.mix_quad_x(mixer, thrust, torque[0], torque[1], torque[2])
+
+if drone.flight_allowed(flight) {
+    print("flight=allowed")
+    print(accel_sp)
+    print([target_roll, target_pitch, target_yaw])
+    print(rate_sp)
+    print(torque)
+    print(motors)
+} else {
+    print("flight=blocked")
+    print([0.0, 0.0, 0.0, 0.0])
+}
