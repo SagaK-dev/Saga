@@ -206,8 +206,15 @@ def build_control_report(
     functions = _control_functions(program)
     issues = _control_issues(program)
     language = language_check or {"status": "not-run", "diagnostic": None}
+    diagnostic = language.get("diagnostic") or {}
+    non_control_language_failure = (
+        language["status"] == "fail"
+        and not str(diagnostic.get("code") or "").startswith("SAGA-C")
+    )
 
-    if issues:
+    if non_control_language_failure:
+        verdict = "invalid"
+    elif issues:
         verdict = "fail"
     elif language["status"] == "fail":
         verdict = "invalid"
