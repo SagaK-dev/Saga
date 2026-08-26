@@ -6,7 +6,7 @@ from pathlib import Path
 
 from saga import ResourceBudget, UNTRUSTED_RESOURCE_BUDGET, compile_file, compile_source, run_source
 from saga.errors import LexLimitError, ParseLimitError, RuntimeResourceError
-from saga.limits import NORMATIVE_RESOURCE_LIMITS, RESOURCE_MODEL
+from saga.limits import NORMATIVE_RESOURCE_LIMITS, RESOURCE_MODEL, source_size_bytes
 
 
 class ResourceBudgetTests(unittest.TestCase):
@@ -24,6 +24,9 @@ class ResourceBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ResourceBudget(max_steps=True)
         self.assertEqual(ResourceBudget(max_import_depth=0).max_import_depth, 0)
+
+    def test_source_size_uses_utf8_bytes_without_ascii_assumptions(self):
+        self.assertEqual(source_size_bytes("aあ😀"), 8)
 
     def test_source_byte_budget_is_opt_in(self):
         source = 'print("0123456789")'
