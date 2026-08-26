@@ -133,6 +133,29 @@ fn tick(error: decimal) -> decimal {
         self.assertIn('INVALID', render_control_report(report))
         self.assertIn('INVALID SAGA SOURCE', render_control_report_html(report))
 
+    def test_language_error_keeps_invalid_verdict_when_control_issue_is_also_present(self):
+        source = '''
+use machine
+
+@control_tick(1000, 200)
+fn tick(error: decimal) -> decimal {
+    let now = machine.monotonic_ns()
+    return "not a decimal"
+}
+'''
+        report = analyze_control_source(source, '<mixed-error>')
+
+        self.assertEqual(report['verdict'], 'invalid')
+        self.assertEqual(report['language_check']['status'], 'fail')
+        diagnostic = report['language_check']['diagnostic']
+        self.assertIsNotNone(diagnostic)
+        self.assertFalse(str(diagnostic['code']).startswith('SAGA-C'))
+        self.assertIn('SAGA-C492', {item['code'] for item in report['issues']})
+        io_check = next(item for item in report['checks'] if item['id'] == 'no-hidden-io')
+        self.assertEqual(io_check['status'], 'fail')
+        self.assertIn('INVALID', render_control_report(report))
+        self.assertIn('INVALID SAGA SOURCE', render_control_report_html(report))
+
     def test_parse_error_is_reported_without_fake_control_conclusion(self):
         report = analyze_control_source('@control_tick(1000, 200)\nfn tick(', '<parse-error>')
 
