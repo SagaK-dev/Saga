@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from saga import run_source
 
@@ -34,6 +35,19 @@ class MachineDroneFocus053Tests(unittest.TestCase):
         output: list[str] = []
         run_source(CONTROL_SURFACE_PROGRAM, output=output.append)
         self.assertEqual(output, ["1", "true", "4", "true", "true"])
+
+    def test_hover_control_example_executes_full_cascade(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "examples/drone/hover_control.saga").read_text(encoding="utf-8")
+        output: list[str] = []
+
+        run_source(source, output=output.append)
+
+        self.assertEqual(len(output), 6)
+        self.assertEqual(output[0], "flight=allowed")
+        for rendered_vector in output[1:]:
+            self.assertTrue(rendered_vector.startswith("[") and rendered_vector.endswith("]"), rendered_vector)
+        self.assertEqual(output[-1].count(","), 3, output[-1])
 
 
 if __name__ == "__main__":
