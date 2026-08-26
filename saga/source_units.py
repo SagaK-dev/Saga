@@ -9,6 +9,7 @@ from .checker import TypeChecker
 from .ast_limits import ast_node_count, validate_ast_size
 from .errors import LexError, ParseError, ParseLimitError, TypeLimitError
 from .lexer import Lexer
+from .limits import ResourceBudget, check_import_depth, check_module_count, check_source_bytes, check_token_count
 from .parser import Parser
 from .project import _lexical_symlink_component, load_project
 from .package_integrity import strict_json_loads, verify_installed_dependency
@@ -24,9 +25,14 @@ class LoadedProgram:
     sources: dict[Path, str]
 
 
-def read_source_file(path: str | Path) -> str:
+def read_source_file(path: str | Path, *, resource_budget: ResourceBudget | None = None) -> str:
     target = Path(path)
+    # Reject an already-oversized file before allocating its full contents.
+    # Recheck the bytes afterwards so growth between stat() and read_bytes()
+    # cannot bypass the deployment policy.
+    check_source_bytes(target.stat().st_size, str(target), resource_budget)
     data = target.read_bytes()
+    check_source_bytes(len(data), str(target), resource_budget)
     try:
         text = data.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:
@@ -110,12 +116,20 @@ def _package_dependency(project_root: Path, spec: str) -> Path:
     return target
 
 
-def load_program(entry: str | Path, *, root: str | Path | None = None) -> LoadedProgram:
+def load_program(
+    entry: str | Path,
+    *,
+    root: str | Path | None = None,
+    resource_budget: ResourceBudget | None = None,
+) -> LoadedProgram:
     """Load one Saga program while preserving namespaced module boundaries.
 
     Legacy source units without a ``module`` directive remain flattened for
     compatibility. A source unit with ``module name`` is compiled as an isolated
     namespace and represented by ``SourceModuleStmt`` in its importer.
+
+    ``resource_budget`` is optional deployment policy. Omitting it preserves the
+    language's no-fixed-ceiling resource model.
     """
     entry_input = Path(entry).expanduser()
     lexical_entry = entry_input.absolute()
@@ -140,6 +154,7 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
 
     visiting: list[Path] = []
     loaded: set[Path] = set()
+    discovered: set[Path] = set()
     module_bindings: dict[Path, str] = {}
     module_names: dict[Path, str] = {}
     ordered: list[Path] = []
@@ -147,6 +162,7 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
 
     def visit(path: Path, depth: int, *, imported: bool, requested_alias: str | None = None) -> list[ast.Stmt]:
         candidate = path.expanduser()
+        check_import_depth(depth, str(candidate), resource_budget)
         if candidate.is_symlink() or _has_symlink_component(candidate, project_root):
             raise ParseError("use先にシンボリックリンクは使用できません", 1, 1, str(candidate))
         resolved = candidate.resolve()
@@ -174,14 +190,23 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
                     )
             return []
 
+        if resolved not in discovered:
+            check_module_count(len(discovered) + 1, str(resolved), resource_budget)
+            discovered.add(resolved)
+
         visiting.append(resolved)
-        source = read_source_file(resolved)
+        source = read_source_file(resolved, resource_budget=resource_budget)
         sources[resolved] = source
         try:
             tokens = Lexer(source, str(resolved)).scan_tokens()
+            check_token_count(len(tokens), str(resolved), resource_budget)
             with adaptive_recursion_capacity(len(tokens)):
                 program = Parser(tokens, str(resolved)).parse()
-            validate_ast_size(program, str(resolved))
+            validate_ast_size(
+                program,
+                str(resolved),
+                resource_budget.max_ast_nodes if resource_budget is not None else None,
+            )
         except RecursionError as exc:
             raise ParseLimitError(
                 "構文が深すぎるため安全に解析できません", 1, 1, str(resolved),
@@ -251,7 +276,11 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
             "Saga規格の固定モジュール数上限ではありません。依存の段数を整理するか、より大きなホスト資源で再実行してください",
         ) from exc
     combined = ast.Program(statements)
-    validate_ast_size(combined, str(entry_path))
+    validate_ast_size(
+        combined,
+        str(entry_path),
+        resource_budget.max_ast_nodes if resource_budget is not None else None,
+    )
     try:
         with adaptive_recursion_capacity(ast_node_count(combined)):
             TypeChecker(str(entry_path)).check(combined)

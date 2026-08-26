@@ -8,18 +8,36 @@ from .ast_limits import ast_node_count, validate_ast_size
 from .errors import ParseLimitError, TypeLimitError
 from .interpreter import Interpreter
 from .lexer import Lexer
+from .limits import (
+    ResourceBudget,
+    check_source_bytes,
+    check_token_count,
+    effective_step_limit,
+    source_size_bytes,
+)
 from .native import Capabilities
 from .parser import Parser
 from .source_units import LoadedProgram, load_program
 from .resource_runtime import adaptive_recursion_capacity
 
 
-def parse_source(source: str, filename: str = "<input>"):
+def _ast_budget(resource_budget: ResourceBudget | None) -> int | None:
+    return resource_budget.max_ast_nodes if resource_budget is not None else None
+
+
+def parse_source(
+    source: str,
+    filename: str = "<input>",
+    *,
+    resource_budget: ResourceBudget | None = None,
+):
+    check_source_bytes(source_size_bytes(source), filename, resource_budget)
     try:
         tokens = Lexer(source, filename).scan_tokens()
+        check_token_count(len(tokens), filename, resource_budget)
         with adaptive_recursion_capacity(len(tokens)):
             program = Parser(tokens, filename).parse()
-        validate_ast_size(program, filename)
+        validate_ast_size(program, filename, _ast_budget(resource_budget))
         return program
     except RecursionError as exc:
         raise ParseLimitError(
@@ -29,8 +47,13 @@ def parse_source(source: str, filename: str = "<input>"):
         ) from exc
 
 
-def compile_source(source: str, filename: str = "<input>"):
-    program = parse_source(source, filename)
+def compile_source(
+    source: str,
+    filename: str = "<input>",
+    *,
+    resource_budget: ResourceBudget | None = None,
+):
+    program = parse_source(source, filename, resource_budget=resource_budget)
     try:
         with adaptive_recursion_capacity(ast_node_count(program)):
             TypeChecker(filename).check(program)
@@ -50,13 +73,14 @@ def run_source(
     precision: int = 50,
     step_limit: int | None = None,
     capabilities: Capabilities | None = None,
+    resource_budget: ResourceBudget | None = None,
 ) -> None:
-    program = compile_source(source, filename)
+    program = compile_source(source, filename, resource_budget=resource_budget)
     interpreter = Interpreter(
         filename,
         output=output,
         precision=precision,
-        step_limit=step_limit,
+        step_limit=effective_step_limit(step_limit, resource_budget),
         capabilities=capabilities,
     )
     try:
@@ -72,9 +96,14 @@ def run_source(
         interpreter.close()
 
 
-def compile_file(path: str, *, root: str | None = None) -> LoadedProgram:
+def compile_file(
+    path: str,
+    *,
+    root: str | None = None,
+    resource_budget: ResourceBudget | None = None,
+) -> LoadedProgram:
     """Compile an entry file and all ``use \"...saga\"`` source units."""
-    return load_program(path, root=root)
+    return load_program(path, root=root, resource_budget=resource_budget)
 
 
 def run_file(
@@ -85,11 +114,12 @@ def run_file(
     precision: int = 50,
     step_limit: int | None = None,
     capabilities: Capabilities | None = None,
+    resource_budget: ResourceBudget | None = None,
 ) -> None:
-    loaded = compile_file(path, root=root)
+    loaded = compile_file(path, root=root, resource_budget=resource_budget)
     interpreter = Interpreter(
         str(loaded.entry), output=output, precision=precision,
-        step_limit=step_limit, capabilities=capabilities,
+        step_limit=effective_step_limit(step_limit, resource_budget), capabilities=capabilities,
     )
     try:
         try:
@@ -114,18 +144,24 @@ class SagaSession:
         precision: int = 50,
         step_limit: int | None = None,
         capabilities: Capabilities | None = None,
+        resource_budget: ResourceBudget | None = None,
     ) -> None:
         self.filename = filename
+        self.resource_budget = resource_budget
         self.checker = TypeChecker(filename)
         self.interpreter = Interpreter(
-            filename, output=output, precision=precision, step_limit=step_limit,
+            filename, output=output, precision=precision,
+            step_limit=effective_step_limit(step_limit, resource_budget),
             capabilities=capabilities,
         )
 
     def execute(self, source: str) -> None:
+        check_source_bytes(source_size_bytes(source), self.filename, self.resource_budget)
         tokens = Lexer(source, self.filename).scan_tokens()
+        check_token_count(len(tokens), self.filename, self.resource_budget)
         with adaptive_recursion_capacity(len(tokens)):
             program = Parser(tokens, self.filename).parse()
+        validate_ast_size(program, self.filename, _ast_budget(self.resource_budget))
         candidate = copy.deepcopy(self.checker)
         with adaptive_recursion_capacity(ast_node_count(program)):
             candidate.check(program)
