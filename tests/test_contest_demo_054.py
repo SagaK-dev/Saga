@@ -11,12 +11,16 @@ from saga import contest_demo
 
 
 class ContestDemo054Tests(unittest.TestCase):
-    def test_generated_demo_preserves_safe_unsafe_contrast(self):
+    def test_generated_demo_preserves_exact_safe_unsafe_contrast(self):
         with tempfile.TemporaryDirectory() as tmp:
             manifest = contest_demo.run_demo(tmp)
             root = Path(tmp)
 
             self.assertTrue(manifest["valid"])
+            self.assertEqual(manifest["schema"], 2)
+            self.assertTrue(manifest["single_change"]["verified"])
+            self.assertEqual(manifest["single_change"]["kind"], "added-line")
+            self.assertEqual(manifest["single_change"]["line"], contest_demo.RISKY_LINE.strip())
             self.assertEqual(manifest["observed"]["safe"], "pass")
             self.assertEqual(manifest["observed"]["unsafe"], "fail")
             self.assertTrue(
@@ -28,7 +32,22 @@ class ContestDemo054Tests(unittest.TestCase):
 
             persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(persisted["observed"], manifest["observed"])
-            self.assertIn("source-analysis contrast", persisted["boundary"])
+            self.assertEqual(persisted["single_change"], manifest["single_change"])
+            self.assertIn("exact one-line", persisted["boundary"])
+
+            safe_report = json.loads((root / "safe-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(safe_report["analysis_scope"], "loaded-program")
+
+            index = (root / "index.html").read_text(encoding="utf-8")
+            self.assertIn("byte-for-byte identical except for one added line", index)
+            self.assertIn(contest_demo.RISKY_LINE.strip(), index)
+
+    def test_unsafe_source_is_safe_source_plus_exactly_one_line(self):
+        self.assertEqual(contest_demo.UNSAFE_SOURCE.count(contest_demo.RISKY_LINE), 1)
+        self.assertEqual(
+            contest_demo.UNSAFE_SOURCE.replace(contest_demo.RISKY_LINE, "", 1),
+            contest_demo.SAFE_SOURCE,
+        )
 
     def test_demo_sources_match_checked_in_contest_examples(self):
         root = Path(__file__).resolve().parents[1]
@@ -46,6 +65,7 @@ class ContestDemo054Tests(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             text = output.getvalue()
+            self.assertIn("single change: VERIFIED", text)
             self.assertIn("safe:   PASS", text)
             self.assertIn("unsafe: FAIL", text)
             self.assertIn("index.html", text)
