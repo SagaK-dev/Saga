@@ -61,8 +61,24 @@ UNTRUSTED_RESOURCE_BUDGET = ResourceBudget(
 
 
 def source_size_bytes(source: str) -> int:
-    """Return a deterministic UTF-8 byte count for an in-memory source string."""
-    return len(source.encode("utf-8", errors="surrogatepass"))
+    """Count UTF-8 bytes without allocating a second source-sized buffer.
+
+    Surrogate code points are counted as three bytes, matching Python's
+    ``surrogatepass`` UTF-8 representation. The lexer remains responsible for
+    deciding whether the characters themselves are legal Saga source text.
+    """
+    total = 0
+    for char in source:
+        codepoint = ord(char)
+        if codepoint <= 0x7F:
+            total += 1
+        elif codepoint <= 0x7FF:
+            total += 2
+        elif codepoint <= 0xFFFF:
+            total += 3
+        else:
+            total += 4
+    return total
 
 
 def check_source_bytes(byte_count: int, filename: str, budget: ResourceBudget | None) -> None:
