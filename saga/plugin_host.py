@@ -66,10 +66,10 @@ def _unwrap_or(value, fallback):
 def _trusted_runtime_roots() -> list[str]:
     """Return only Python's interpreter-owned standard-library roots.
 
-    Third-party bridge paths are selected separately by the Saga host.  Keeping
+    Third-party bridge paths are selected separately by the Saga host. Keeping
     these sets distinct lets the mount sandbox hide the original interpreter
     prefix while still allowing an allowlisted extension such as NumPy to load
-    ordinary stdlib dependencies (for example ``contextvars``).
+    ordinary stdlib dependencies and CPython extension modules.
     """
     roots: list[str] = []
     paths = sysconfig.get_paths()
@@ -78,6 +78,14 @@ def _trusted_runtime_roots() -> list[str]:
         if not value:
             continue
         resolved = os.path.realpath(value)
+        if os.path.isdir(resolved) and resolved not in roots:
+            roots.append(resolved)
+    # Extension-backed stdlib modules (for example _contextvars) live in
+    # lib-dynload on CPython and need their own sys.path entry after /opt is
+    # masked. DESTSHARED is interpreter configuration, not plugin input.
+    destshared = sysconfig.get_config_var("DESTSHARED")
+    if destshared:
+        resolved = os.path.realpath(str(destshared))
         if os.path.isdir(resolved) and resolved not in roots:
             roots.append(resolved)
     return roots
