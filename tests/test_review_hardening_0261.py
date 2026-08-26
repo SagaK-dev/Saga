@@ -48,8 +48,7 @@ class ReviewHardening0261Tests(unittest.TestCase):
         from tools.ga_readiness import bound_pass
         ctx={'manifest_sha256':'a'*64,'tree_sha256':'b'*64}
         with tempfile.TemporaryDirectory() as td:
-            from saga import __version__
-            p=Path(td)/'fake.json'; p.write_text(json.dumps({'release':__version__,'pass':True,'source_manifest_sha256':'c'*64,'source_tree_sha256':'b'*64}))
+            p=Path(td)/'fake.json'; p.write_text(json.dumps({'release':'0.50.0','pass':True,'source_manifest_sha256':'c'*64,'source_tree_sha256':'b'*64}))
             ok,reason=bound_pass(p,ctx)
             self.assertFalse(ok); self.assertIn('manifest',reason)
 
