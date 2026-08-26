@@ -23,6 +23,7 @@ except ImportError:
     resource = None
 import statistics
 import sys
+import sysconfig
 from types import MappingProxyType, SimpleNamespace
 
 
@@ -62,30 +63,61 @@ def _unwrap_or(value, fallback):
     return value.value if value.present else fallback
 
 
-def _mask_linux_paths(bridge_paths=None) -> tuple[list[str], list[str]]:
-    """Mask host paths and optionally bind trusted Python package roots read-only.
+def _trusted_runtime_roots() -> list[str]:
+    """Return only Python's interpreter-owned standard-library roots.
+
+    Third-party bridge paths are selected separately by the Saga host.  Keeping
+    these sets distinct lets the mount sandbox hide the original interpreter
+    prefix while still allowing an allowlisted extension such as NumPy to load
+    ordinary stdlib dependencies (for example ``contextvars``).
+    """
+    roots: list[str] = []
+    paths = sysconfig.get_paths()
+    for key in ("stdlib", "platstdlib"):
+        value = paths.get(key)
+        if not value:
+            continue
+        resolved = os.path.realpath(value)
+        if os.path.isdir(resolved) and resolved not in roots:
+            roots.append(resolved)
+    return roots
+
+
+def _mask_linux_paths(bridge_paths=None) -> tuple[list[str], list[str], list[str]]:
+    """Mask host paths and re-expose trusted Python roots read-only.
 
     Third-party bridges still run in their own user/mount/PID/IPC/UTS/network
-    namespaces. Only the explicitly selected Python installation roots are
-    re-exposed read-only under /run/saga-bridge; the plugin cannot choose paths.
+    namespaces. Python's own stdlib roots and only the explicitly selected
+    package roots are re-exposed read-only under private ``/run`` mount points;
+    the plugin cannot choose host paths.
     """
     if sys.platform != "linux" or os.environ.get("SAGA_SANDBOX_CHILD") != "1":
-        return [], list(bridge_paths or [])
+        return [], _trusted_runtime_roots(), list(bridge_paths or [])
     libc = ctypes.CDLL(None, use_errno=True)
     MS_RDONLY=1; MS_NOSUID=2; MS_NODEV=4; MS_NOEXEC=8; MS_REMOUNT=32; MS_BIND=4096
     MS_REC=16384; MS_PRIVATE=1 << 18
     if libc.mount(None, ctypes.c_char_p(b"/"), None, ctypes.c_ulong(MS_REC | MS_PRIVATE), None) != 0:
         raise RuntimeError(f"mount propagation isolation failed: errno {ctypes.get_errno()}")
-    bridge_mounts=[]
     requested=[os.path.realpath(str(p)) for p in (bridge_paths or []) if os.path.isdir(p)]
-    if requested:
+    runtime_roots=_trusted_runtime_roots()
+    runtime_mounts=[]
+    bridge_mounts=[]
+    if runtime_roots or requested:
         # /run is private in this mount namespace and carries only read-only
-        # package roots selected by the Saga host, never plugin-controlled paths.
+        # interpreter/package roots selected by Saga, never plugin paths.
         if libc.mount(ctypes.c_char_p(b"tmpfs"), ctypes.c_char_p(b"/run"), ctypes.c_char_p(b"tmpfs"), ctypes.c_ulong(MS_NOSUID|MS_NODEV|MS_NOEXEC), ctypes.c_char_p(b"mode=0700,size=8m")) != 0:
-            raise RuntimeError(f"bridge tmpfs mount failed: errno {ctypes.get_errno()}")
-        base="/run/saga-bridge"; os.makedirs(base,mode=0o700,exist_ok=True)
+            raise RuntimeError(f"runtime tmpfs mount failed: errno {ctypes.get_errno()}")
+        runtime_base="/run/saga-runtime"; os.makedirs(runtime_base,mode=0o700,exist_ok=True)
+        for i,src in enumerate(runtime_roots):
+            dst=f"{runtime_base}/stdlib{i}"; os.makedirs(dst,mode=0o700,exist_ok=True)
+            if libc.mount(ctypes.c_char_p(src.encode()),ctypes.c_char_p(dst.encode()),None,ctypes.c_ulong(MS_BIND|MS_REC),None)!=0:
+                raise RuntimeError(f"stdlib bind mount failed: errno {ctypes.get_errno()}")
+            if libc.mount(None,ctypes.c_char_p(dst.encode()),None,ctypes.c_ulong(MS_BIND|MS_REMOUNT|MS_RDONLY|MS_NOSUID|MS_NODEV),None)!=0:
+                raise RuntimeError(f"stdlib read-only remount failed: errno {ctypes.get_errno()}")
+            runtime_mounts.append(dst)
+        bridge_base="/run/saga-bridge"; os.makedirs(bridge_base,mode=0o700,exist_ok=True)
         for i,src in enumerate(requested):
-            dst=f"{base}/site{i}"; os.makedirs(dst,mode=0o700,exist_ok=True)
+            dst=f"{bridge_base}/site{i}"; os.makedirs(dst,mode=0o700,exist_ok=True)
             if libc.mount(ctypes.c_char_p(src.encode()),ctypes.c_char_p(dst.encode()),None,ctypes.c_ulong(MS_BIND|MS_REC),None)!=0:
                 raise RuntimeError(f"bridge bind mount failed: errno {ctypes.get_errno()}")
             # Re-mount the bind read-only and with conservative flags.
@@ -94,7 +126,7 @@ def _mask_linux_paths(bridge_paths=None) -> tuple[list[str], list[str]]:
             bridge_mounts.append(dst)
     masked=[]
     targets=("/home","/root","/mnt","/media","/srv","/opt","/var","/etc","/proc","/tmp","/sys","/boot")
-    if not requested: targets=targets+("/run",)
+    if not runtime_mounts and not bridge_mounts: targets=targets+("/run",)
     for target in targets:
         if not os.path.isdir(target): continue
         rc=libc.mount(ctypes.c_char_p(b"tmpfs"),ctypes.c_char_p(target.encode()),ctypes.c_char_p(b"tmpfs"),ctypes.c_ulong(MS_NOSUID|MS_NODEV|MS_NOEXEC),ctypes.c_char_p(b"mode=0700,size=16m"))
@@ -103,7 +135,7 @@ def _mask_linux_paths(bridge_paths=None) -> tuple[list[str], list[str]]:
     PR_SET_NO_NEW_PRIVS=38
     if libc.prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0)!=0:
         raise RuntimeError(f"PR_SET_NO_NEW_PRIVS failed: errno {ctypes.get_errno()}")
-    return masked,bridge_mounts
+    return masked,runtime_mounts,bridge_mounts
 
 def _limits() -> None:
     if resource is None:
@@ -277,8 +309,8 @@ def main() -> int:
         if not isinstance(source, str):
             raise TypeError("source must be text")
         _limits()
-        masked, bridge_mounts = _mask_linux_paths(request.get("bridge_paths", []))
-        for path in reversed(bridge_mounts):
+        masked, runtime_mounts, bridge_mounts = _mask_linux_paths(request.get("bridge_paths", []))
+        for path in reversed([*runtime_mounts, *bridge_mounts]):
             if path not in sys.path: sys.path.insert(0,path)
         exports = _load(source, request.get("filename", "<plugin>"), request.get("imports", {}))
         op = request.get("op")
