@@ -47,9 +47,49 @@ jobs:
           tests.test_generic_adts_051
           tests.test_language_synthesis_045
           tests.test_cli_identity_054
+          tests.test_contest_demo_054
       - name: Run Go regression
         working-directory: implementations/go
         run: go test ./...
       - name: Run Go vet
         working-directory: implementations/go
         run: go vet ./...
+
+  clean-package-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.13'}
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install wheel outside the checkout and run contest smoke test
+        run: |
+          wheel="$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          python -m venv /tmp/saga-wheel-env
+          /tmp/saga-wheel-env/bin/python -m pip install "$wheel"
+          cd /tmp
+          /tmp/saga-wheel-env/bin/saga --version
+          /tmp/saga-wheel-env/bin/saga-contest-demo --output /tmp/saga-wheel-demo
+          /tmp/saga-wheel-env/bin/saga check /tmp/saga-wheel-demo/diff_safe_control.saga
+          /tmp/saga-wheel-env/bin/saga-control-report /tmp/saga-wheel-demo/diff_safe_control.saga
+          if /tmp/saga-wheel-env/bin/saga-control-report /tmp/saga-wheel-demo/diff_unsafe_control.saga; then
+            echo "unsafe contest example unexpectedly passed" >&2
+            exit 1
+          fi
+          test -f /tmp/saga-wheel-demo/index.html
+          test -f /tmp/saga-wheel-demo/manifest.json
+      - name: Install source distribution outside the checkout
+        run: |
+          sdist="$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          test -n "$sdist"
+          python -m venv /tmp/saga-sdist-env
+          /tmp/saga-sdist-env/bin/python -m pip install "$sdist"
+          cd /tmp
+          /tmp/saga-sdist-env/bin/saga --version
+          /tmp/saga-sdist-env/bin/saga-contest-demo --output /tmp/saga-sdist-demo
+          test -f /tmp/saga-sdist-demo/index.html
+          test -f /tmp/saga-sdist-demo/manifest.json

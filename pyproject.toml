@@ -30,7 +30,7 @@ Repository = "https://github.com/SagaK-dev/Saga"
 Issues = "https://github.com/SagaK-dev/Saga/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "build>=1.2"]
 websocket = ["websocket-client"]
 crypto = ["cryptography"]
 media = ["Pillow", "opencv-python"]
@@ -44,6 +44,7 @@ all = ["websocket-client", "cryptography", "Pillow", "opencv-python", "pygame", 
 [project.scripts]
 saga = "saga.cli:main"
 saga-control-report = "saga.control_report:main"
+saga-contest-demo = "saga.contest_demo:main"
 
 [tool.setuptools.packages.find]
 include = ["saga*"]
