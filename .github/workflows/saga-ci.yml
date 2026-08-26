@@ -20,13 +20,27 @@ jobs:
           go-version-file: implementations/go/go.mod
           cache-dependency-path: implementations/go/go.mod
       - name: Install native test dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang llvm
-      - name: Install Saga
-        run: python -m pip install -e '.[dev]'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang llvm \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good
+      - name: Install Saga and full core-test extras
+        run: python -m pip install -e '.[dev,crypto,media,websocket]'
       - name: Compile Python sources
         run: python -m compileall -q saga tools
       - name: Run complete Python regression suite
-        run: python -m unittest discover -s tests -p 'test_*.py'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in tests/test_*.py; do
+            pattern="$(basename "$test_file")"
+            echo "::group::$pattern"
+            python -m unittest discover -s tests -p "$pattern"
+            echo "::endgroup::"
+          done
       - name: Run Python-Go Standard Core conformance
         run: python conformance/go_standard_core.py
       - name: Run Go regression
