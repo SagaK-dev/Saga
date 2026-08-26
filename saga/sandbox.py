@@ -43,20 +43,26 @@ def support() -> SandboxSupport:
 
 
 def _resource_limits() -> None:
-    """Applied in the child immediately before exec on POSIX hosts."""
+    """Apply limits that are safe before entering a Linux user namespace.
+
+    Do not set ``RLIMIT_NPROC`` here.  Strict Linux launches execute ``unshare
+    --fork`` first, so a per-user process limit applied to the outer runner UID
+    can prevent ``unshare`` itself from forking on busy CI hosts.  Untrusted
+    plugin workers apply a tighter process limit from ``plugin_host._limits``
+    after namespace creation, where the limit belongs to the isolated child.
+    """
     if _resource is None:
         return
     try:
         _resource.setrlimit(_resource.RLIMIT_CORE, (0, 0))
     except (ValueError, OSError):
         pass
-    for name, limit in (("RLIMIT_NOFILE", 64), ("RLIMIT_NPROC", 32)):
-        kind = getattr(_resource, name, None)
-        if kind is not None:
-            try:
-                _resource.setrlimit(kind, (limit, limit))
-            except (ValueError, OSError):
-                pass
+    kind = getattr(_resource, "RLIMIT_NOFILE", None)
+    if kind is not None:
+        try:
+            _resource.setrlimit(kind, (64, 64))
+        except (ValueError, OSError):
+            pass
 
 
 def _minimal_env() -> dict[str, str]:
@@ -121,9 +127,9 @@ def run_cli_in_strict_sandbox(argv: Sequence[str]) -> int:
     """Re-exec the Saga CLI in an OS isolation boundary.
 
     Linux: new user, PID, IPC, UTS and network namespaces plus no-new-privs and
-    conservative descriptor/process limits. Files remain visible so source
-    units and explicitly capability-granted paths work; Saga's path capability
-    checks remain mandatory. Network is independently cut at the OS layer.
+    conservative descriptor limits. Files remain visible so source units and
+    explicitly capability-granted paths work; Saga's path capability checks
+    remain mandatory. Network is independently cut at the OS layer.
     """
     import sys
     if os.environ.get("SAGA_OS_SANDBOX_ACTIVE") == "1":

@@ -74,7 +74,7 @@ match state {
             iface=build_module_interface(src, root=root)
             self.assertEqual(iface['language_version'], '0.35')
             enum=next(x for x in iface['exports'] if x['kind']=='enum')
-            self.assertEqual(enum, {'kind':'enum','name':'Status','variants':[{'name':'Ready','payload':[]},{'name':'Done','payload':[]}]})
+            self.assertEqual(enum, {'kind':'enum','name':'Status','type_params':[],'variants':[{'name':'Ready','payload':[]},{'name':'Done','payload':[]}]})
             loaded=load_module_interface(src.with_suffix('.smi.json'), source=src)
             self.assertEqual(loaded['abi_sha256'], iface['abi_sha256'])
 
