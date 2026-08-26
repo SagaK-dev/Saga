@@ -1,3 +1,11 @@
+# Saga 0.53.0 (development)
+
+- Refocused Saga on machine control, robotics, and autonomous/drone systems while keeping the existing general-purpose language surface available for tooling, telemetry, configuration, simulation, and integration.
+- Added explainable Control Report output with source-level timing/evidence boundaries, per-check status, project source-unit loading, and explicit separation from target WCET, physical HIL, interlock/E-stop validation, and certification claims.
+- Made the Production GA control contract apply consistently to class methods and same-receiver checked helpers in both the Python reference implementation and independent Go implementation, including recursive method-graph detection.
+- Unified Python CLI version reporting with the package version and aligned Python/Go CLI identity with Saga's machine-control focus.
+- Added permanent regression coverage for the 0.53 machine/drone control surface, control-method parity, Control Report behavior, and CLI identity.
+
 # Saga 0.52.0 (development)
 
 - Integrated intrinsic `Option[T]` and `Result[T, E]` with the Generic ADT constructor and exhaustive-match model while preserving legacy helpers.
