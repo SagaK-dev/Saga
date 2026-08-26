@@ -109,6 +109,7 @@ def _package_dependency(project_root: Path, spec: str) -> Path:
         raise ParseError(f"依存パッケージ '{name}' の整合性検証に失敗しました: {exc}", 1, 1, spec, "依存パッケージを再インストールしてください") from exc
     return target
 
+
 def load_program(entry: str | Path, *, root: str | Path | None = None) -> LoadedProgram:
     """Load one Saga program while preserving namespaced module boundaries.
 
@@ -149,18 +150,13 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
         if candidate.is_symlink() or _has_symlink_component(candidate, project_root):
             raise ParseError("use先にシンボリックリンクは使用できません", 1, 1, str(candidate))
         resolved = candidate.resolve()
-        # Package dependencies are verified separately and may live below their
-        # content-addressed installation root outside the project source tree.
-        is_package = False
         try:
             resolved.relative_to(project_root)
-        except ValueError:
-            is_package = ".saga" in resolved.parts and "packages" in resolved.parts
-            if not is_package:
-                raise ParseError(
-                    "useでプロジェクト外のソースを読み込むことはできません",
-                    1, 1, str(path), "依存ファイルをプロジェクト内へ配置してください",
-                )
+        except ValueError as exc:
+            raise ParseError(
+                "useでプロジェクト外のソースを読み込むことはできません",
+                1, 1, str(path), "依存ファイルをプロジェクト内へ配置してください",
+            ) from exc
         if resolved in visiting:
             cycle = " -> ".join(p.name for p in [*visiting, resolved])
             raise ParseError(f"ソース単位の循環依存があります: {cycle}", 1, 1, str(resolved))
@@ -265,4 +261,3 @@ def load_program(entry: str | Path, *, root: str | Path | None = None) -> Loaded
             "入れ子の型や宣言を小さなソース単位へ分割してください",
         ) from exc
     return LoadedProgram(combined, entry_path, project_root, tuple(ordered), sources)
-
