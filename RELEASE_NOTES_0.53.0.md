@@ -6,6 +6,7 @@ Saga 0.53.0 is a development milestone that makes machine control, robotics, and
 
 - Adds a theoretical 60 kHz control profile: `@control_tick` accepts fractional-microsecond budgets such as `@control_tick(60000, 12.5)`, and `machine.cyclic_clock` derives deadlines from an exact rational frequency phase instead of repeatedly adding a rounded nanosecond period.
 - Expands deterministic high-rate machine-control primitives with `machine.deadband` and `machine.integrate_clamped`, and allows the existing `machine.slew` and `machine.low_pass` primitives inside checked control ticks.
+- Adds a native-friendly Q1.31 control path with saturating add/subtract/multiply/MAC primitives and ratio construction. Native Codegen lowers these operations directly to fixed-width integer C helpers, avoiding hosted decimal/runtime calls in the hot path.
 - Repositions Saga as a control-systems language rather than a general-purpose language that happens to include control libraries.
 - Preserves the existing general-purpose language surface for tooling, telemetry, configuration, simulation, and application integration.
 - Promotes the existing `machine` and `drone` modules, control annotations, hardware capabilities, resource lifetime rules, and production qualification path as core language/toolchain concerns.
