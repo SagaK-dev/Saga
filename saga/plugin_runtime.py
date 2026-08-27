@@ -101,10 +101,10 @@ def _normalize_imports(raw: object, *, label: str) -> dict[str, tuple[str, ...]]
             raise PluginSandboxError(f"{label} contains an invalid module name")
         if isinstance(names, (str, bytes)) or not isinstance(names, Iterable):
             raise PluginSandboxError(f"{label} exports for {module} must be an iterable of names")
-        exports = tuple(dict.fromkeys(names))
+        exports = tuple(names)
         if not all(isinstance(name, str) and name.isidentifier() and not name.startswith("_") for name in exports):
             raise PluginSandboxError(f"{label} contains an invalid export name for {module}")
-        normalized[module] = exports
+        normalized[module] = tuple(dict.fromkeys(exports))
     return normalized
 
 
