@@ -59,6 +59,7 @@ class ProcessBudget:
 
     max_cpu_seconds: int | None = None
     max_address_space_bytes: int | None = None
+    max_wall_seconds: int | None = None
 
     def __post_init__(self) -> None:
         for descriptor in fields(self):
@@ -84,11 +85,13 @@ UNTRUSTED_RESOURCE_BUDGET = ResourceBudget(
 )
 
 # Applied only when the untrusted CLI profile is combined with the strict Linux
-# whole-program sandbox. CPU is process CPU time, not wall-clock time;
-# max_address_space_bytes maps to RLIMIT_AS rather than claiming an RSS limit.
+# whole-program sandbox. CPU is process CPU time, max_address_space_bytes maps
+# to RLIMIT_AS rather than claiming an RSS limit, and max_wall_seconds is enforced
+# by the parent watchdog so sleeping or blocked children cannot run indefinitely.
 UNTRUSTED_PROCESS_BUDGET = ProcessBudget(
     max_cpu_seconds=5,
     max_address_space_bytes=512 * 1024 * 1024,
+    max_wall_seconds=10,
 )
 
 

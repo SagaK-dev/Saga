@@ -117,8 +117,67 @@ saga_exports={"escape":escape}
             self.assertEqual(sandbox.run_cli_in_strict_sandbox(['run', 'main.saga']), 0)
         cmd = run.call_args.args[0]
         self.assertIn('--mount', cmd)
+        self.assertIn('--kill-child=KILL', cmd)
         self.assertIs(run.call_args.kwargs['preexec_fn'], sandbox._strict_cli_preexec)
         self.assertTrue(run.call_args.kwargs['close_fds'])
+        self.assertIsNone(run.call_args.kwargs['timeout'])
+
+    def test_strict_plugin_command_uses_parent_death_kill_signal(self):
+        from unittest import mock
+        from saga import sandbox
+        with (
+            mock.patch("saga.sandbox.platform.system", return_value="Linux"),
+            mock.patch("saga.sandbox.shutil.which", return_value="/usr/bin/unshare"),
+        ):
+            cmd = sandbox.command_for_python(Path("worker.py"), strict=True)
+        self.assertIn("--kill-child=KILL", cmd)
+
+    def test_strict_wall_deadline_maps_to_resource_exit_code(self):
+        import contextlib
+        import io
+        from unittest import mock
+        from saga import ProcessBudget
+        from saga import sandbox
+        from saga.exitcodes import RESOURCE_ERROR
+        timeout = subprocess.TimeoutExpired(["unshare"], 3)
+        stderr = io.StringIO()
+        with (
+            mock.patch("saga.sandbox.platform.system", return_value="Linux"),
+            mock.patch("saga.sandbox.shutil.which", return_value="/usr/bin/unshare"),
+            mock.patch.dict(os.environ, {"SAGA_OS_SANDBOX_ACTIVE": "0"}),
+            mock.patch("saga.sandbox.subprocess.run", side_effect=timeout) as run,
+            contextlib.redirect_stderr(stderr),
+        ):
+            code = sandbox.run_cli_in_strict_sandbox(
+                ["run", "main.saga"],
+                process_budget=ProcessBudget(max_wall_seconds=3),
+            )
+        self.assertEqual(code, RESOURCE_ERROR)
+        self.assertEqual(run.call_args.kwargs["timeout"], 3)
+        self.assertIn("--kill-child=KILL", run.call_args.args[0])
+        self.assertIn("SAGA-R002", stderr.getvalue())
+
+    def test_strict_wall_deadline_interrupts_sleeping_saga(self):
+        if platform.system().lower() != "linux" or not shutil.which("unshare"):
+            self.skipTest("strict namespace sandbox requires Linux unshare")
+        from saga import ProcessBudget
+        from saga import sandbox
+        from saga.exitcodes import RESOURCE_ERROR
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "sleep.saga"
+            src.write_text(
+                'use time\ntime.sleep(30.0)\nprint("late")\n',
+                encoding="utf-8",
+            )
+            code = sandbox.run_cli_in_strict_sandbox(
+                ["run", str(src)],
+                process_budget=ProcessBudget(
+                    max_cpu_seconds=30,
+                    max_address_space_bytes=512 * 1024 * 1024,
+                    max_wall_seconds=1,
+                ),
+            )
+        self.assertEqual(code, RESOURCE_ERROR)
 
     def test_untrusted_process_budget_applies_cpu_and_address_space_limits(self):
         from types import SimpleNamespace

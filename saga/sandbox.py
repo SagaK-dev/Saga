@@ -23,6 +23,7 @@ import shutil
 import subprocess
 from typing import Sequence
 
+from .exitcodes import RESOURCE_ERROR
 from .limits import ProcessBudget
 
 
@@ -137,7 +138,7 @@ def command_for_python(script: Path, *, strict: bool = True) -> list[str]:
             return [
                 shutil.which("unshare") or "unshare",
                 "--user", "--map-root-user", "--mount", "--pid", "--fork",
-                "--ipc", "--uts", "--net", "--",
+                "--kill-child=KILL", "--ipc", "--uts", "--net", "--",
                 *base,
             ]
         raise RuntimeError("strict OS sandbox is unavailable on this platform/build; refusing to weaken isolation")
@@ -196,7 +197,7 @@ def run_cli_in_strict_sandbox(
     env["SAGA_OS_SANDBOX_ACTIVE"] = "1"
     cmd = [
         shutil.which("unshare") or "unshare",
-        "--user", "--map-root-user", "--mount", "--pid", "--fork", "--ipc", "--uts", "--net", "--",
+        "--user", "--map-root-user", "--mount", "--pid", "--fork", "--kill-child=KILL", "--ipc", "--uts", "--net", "--",
         sys.executable, "-m", "saga.cli", *argv,
     ]
     preexec = (
@@ -204,12 +205,29 @@ def run_cli_in_strict_sandbox(
         if process_budget is None
         else partial(_strict_cli_preexec, process_budget)
     )
-    completed = subprocess.run(
-        cmd,
-        env=env,
-        shell=False,
-        check=False,
-        close_fds=True,
-        preexec_fn=preexec,
+    wall_timeout = (
+        process_budget.max_wall_seconds
+        if process_budget is not None
+        else None
     )
+    try:
+        completed = subprocess.run(
+            cmd,
+            env=env,
+            shell=False,
+            check=False,
+            close_fds=True,
+            preexec_fn=preexec,
+            timeout=wall_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        # unshare --kill-child uses a parent-death signal for its namespace
+        # child. Killing the timed-out outer runner therefore tears down the
+        # PID-namespace init and its descendants instead of leaving orphans.
+        print(
+            "error[SAGA-R002]: strict sandbox wall-clock deadline exceeded "
+            f"({wall_timeout} seconds)",
+            file=sys.stderr,
+        )
+        return RESOURCE_ERROR
     return completed.returncode
