@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .api import run_file
 from .control_report import analyze_control_file, render_control_report
 from .control_report_html import render_control_report_html
 
@@ -132,7 +133,11 @@ def _report_card(
     """
 
 
-def _render_index(safe_report: dict[str, Any], unsafe_report: dict[str, Any]) -> str:
+def _render_index(
+    safe_report: dict[str, Any],
+    unsafe_report: dict[str, Any],
+    safe_runtime_output: list[str],
+) -> str:
     safe_card = _report_card(
         "安全な例",
         "周期制御の中には、追跡できる計算と検査済みヘルパーだけがあります。",
@@ -154,6 +159,7 @@ def _render_index(safe_report: dict[str, Any], unsafe_report: dict[str, Any]) ->
     headroom = _display_number(timing.get("headroom_us", "?"))
     unsafe_issue = _first_issue(unsafe_report) or {}
     unsafe_code = html.escape(str(unsafe_issue.get("code") or "SAGA-C?"))
+    runtime_text = html.escape(" / ".join(safe_runtime_output) or "(出力なし)")
 
     return f"""<!doctype html>
 <html lang="ja">
@@ -269,6 +275,7 @@ def _render_index(safe_report: dict[str, Any], unsafe_report: dict[str, Any]) ->
         <article class="problem-item"><strong>{budget} µs</strong><p>この例では周期内の実行予算をソース上で{budget}マイクロ秒と宣言します。</p></article>
         <article class="problem-item"><strong>{headroom} µs</strong><p>宣言上の余白は{headroom}マイクロ秒。周期内に何を入れるかを見える形でレビューできます。</p></article>
       </div>
+      <p class="source-note"><strong>実際のSaga実行結果:</strong> <code>{runtime_text}</code> — 安全例はデモ生成時に処理系で実行し、その出力をこのページへ埋め込んでいます。</p>
     </section>
 
     <section class="section">
@@ -342,6 +349,8 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
 
     safe_report = analyze_control_file(safe_source_path)
     unsafe_report = analyze_control_file(unsafe_source_path)
+    safe_runtime_output: list[str] = []
+    run_file(str(safe_source_path), output=safe_runtime_output.append)
 
     _write_text(output / "safe-report.txt", render_control_report(safe_report) + "\n")
     _write_text(output / "unsafe-report.txt", render_control_report(unsafe_report) + "\n")
@@ -349,7 +358,7 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
     _write_text(output / "unsafe-report.json", json.dumps(unsafe_report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     _write_text(output / "safe-report.html", render_control_report_html(safe_report))
     _write_text(output / "unsafe-report.html", render_control_report_html(unsafe_report))
-    _write_text(output / "index.html", _render_index(safe_report, unsafe_report))
+    _write_text(output / "index.html", _render_index(safe_report, unsafe_report, safe_runtime_output))
 
     unsafe_codes = [str(item.get("code") or "") for item in unsafe_report.get("issues", [])]
     exact_single_change = _single_change_is_exact()
@@ -358,6 +367,7 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
         and safe_report.get("verdict") == "pass"
         and unsafe_report.get("verdict") == "fail"
         and any(code.startswith("SAGA-C") for code in unsafe_codes)
+        and len(safe_runtime_output) == 1
     )
 
     manifest = {
@@ -382,6 +392,7 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
             "safe_analysis_scope": safe_report.get("analysis_scope"),
             "unsafe_analysis_scope": unsafe_report.get("analysis_scope"),
             "unsafe_diagnostics": unsafe_codes,
+            "safe_runtime_output": safe_runtime_output,
         },
         "judge_summary": {
             "category": "programming-middle-school-problem-solving",

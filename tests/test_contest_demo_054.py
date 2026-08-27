@@ -23,6 +23,7 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(manifest["single_change"]["line"], contest_demo.RISKY_LINE.strip())
             self.assertEqual(manifest["observed"]["safe"], "pass")
             self.assertEqual(manifest["observed"]["unsafe"], "fail")
+            self.assertEqual(len(manifest["observed"]["safe_runtime_output"]), 1)
             self.assertTrue(
                 any(code.startswith("SAGA-C") for code in manifest["observed"]["unsafe_diagnostics"])
             )
@@ -53,6 +54,7 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertIn("機械制御の「危ない1行」を", index)
             self.assertIn("同じ解析器で比較", index)
             self.assertIn("再現方法", index)
+            self.assertIn("実際のSaga実行結果", index)
             self.assertIn("判定の境界", index)
             self.assertIn(contest_demo.RISKY_LINE.strip(), index)
             self.assertIn("50 µs", index)

@@ -36,7 +36,7 @@ build/contest-demo/index.html
 
 The first page is a Japanese-first judge view designed for the two-minute DIFF video: it shows the problem, the 20 kHz timing contract, the exact one-line source change, PASS/FAIL, the stable diagnostic, the suggested correction, and the evidence boundary without requiring a repository tour.
 
-The command also generates the source files, terminal/JSON/HTML Control Reports, and a machine-readable `manifest.json`. The manifest records SHA-256 hashes for both source examples so the submitted demo can be checked against the exact source pair shown in the video.
+The command executes the safe Saga program through the normal interpreter, embeds that observed output in the judge view, and also generates the source files, terminal/JSON/HTML Control Reports, and a machine-readable `manifest.json`. The manifest records SHA-256 hashes for both source examples so the submitted demo can be checked against the exact source pair shown in the video.
 
 Expected result:
 
