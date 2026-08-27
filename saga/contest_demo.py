@@ -63,7 +63,7 @@ def _single_change_is_exact() -> bool:
 
 def _risky_line_number() -> int:
     offset = UNSAFE_SOURCE.index(RISKY_LINE)
-    return UNSAFE_SOURCE.count("\\n", 0, offset) + 1
+    return UNSAFE_SOURCE.count("\n", 0, offset) + 1
 
 
 def _first_issue(report: dict[str, Any]) -> dict[str, Any] | None:
