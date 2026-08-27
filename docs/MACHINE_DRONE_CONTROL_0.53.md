@@ -89,6 +89,29 @@ ticks include `machine.slew`, `machine.low_pass`, `machine.deadband`, and
 `machine.integrate_clamped`. These functions keep state explicit in Saga code
 rather than hiding shared mutable state behind the control boundary.
 
+### Native-friendly Q1.31 control path
+
+For control paths that need a fixed-width representation instead of hosted
+`decimal`, Saga exposes signed Q1.31 arithmetic on the ordinary `int` surface:
+
+```saga
+@control_tick(60000, 8)
+fn current_tick(error_q31: int, gain_q31: int, accumulator_q31: int) -> int {
+    let proportional_q31 = machine.q31_mul_sat(error_q31, gain_q31)
+    return machine.q31_add_sat(accumulator_q31, proportional_q31)
+}
+```
+
+The Q1.31 domain is `-2147483648..2147483647`, representing `-1.0` through
+just below `+1.0`. `machine.q31_from_ratio` constructs constants without a
+floating-point conversion. `q31_add_sat`, `q31_sub_sat`, `q31_mul_sat`, and
+`q31_mac_sat` saturate at the Q1.31 limits rather than wrapping.
+
+The Native Codegen path recognizes these primitives and lowers them directly to
+integer C helpers. The hot path therefore does not require hosted decimal state,
+heap allocation, or a Go/Python runtime call. This improves suitability for
+target-native high-rate control, but it is still not target WCET evidence.
+
 ## Control language contracts
 
 Saga control code can use source-level contracts such as:
