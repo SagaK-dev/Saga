@@ -1150,13 +1150,13 @@ int64_t saga_abi035_abs_i64(int64_t a) { return a < 0 ? saga_abi035_neg_i64(a) :
 int64_t saga_abi035_mod_i64(int64_t a, int64_t b) { if (b==0) saga_abi035_mod_zero(); if (a==INT64_MIN && b==-1) return 0; int64_t r=a%b; if (r!=0 && ((r<0)!=(b<0))) r=saga_abi035_add_i64(r,b); return r; }
 
 static int64_t saga_abi035_q31_require(int64_t value) {
-    if (value < INT64_C(-2147483648) || value > INT64_C(2147483647))
+    if (value < (-INT64_C(2147483647) - INT64_C(1)) || value > INT64_C(2147483647))
         saga_fatal("SAGA-R196: Q1.31 operand out of range", 96);
     return value;
 }
 static int64_t saga_abi035_q31_sat(int64_t value) {
     if (value > INT64_C(2147483647)) return INT64_C(2147483647);
-    if (value < INT64_C(-2147483648)) return INT64_C(-2147483648);
+    if (value < (-INT64_C(2147483647) - INT64_C(1))) return (-INT64_C(2147483647) - INT64_C(1));
     return value;
 }
 int64_t saga_abi035_machine_q31_from_ratio(int64_t numerator, int64_t denominator) {
@@ -1164,7 +1164,7 @@ int64_t saga_abi035_machine_q31_from_ratio(int64_t numerator, int64_t denominato
     if (denominator <= 0 || denominator > INT64_C(2147483647))
         saga_fatal("SAGA-R196: Q1.31 denominator out of range", 96);
     if (numerator >= denominator) return INT64_C(2147483647);
-    if (numerator <= -denominator) return INT64_C(-2147483648);
+    if (numerator <= -denominator) return (-INT64_C(2147483647) - INT64_C(1));
     return (numerator * INT64_C(2147483648)) / denominator;
 }
 int64_t saga_abi035_machine_q31_add_sat(int64_t left, int64_t right) {
