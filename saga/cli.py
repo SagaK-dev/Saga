@@ -25,7 +25,7 @@ from .stdlib import MODULES
 from .standards import PROPOSER_TYPES, StandardsError, StandardsRegistry
 from .package import PackageError, build_lock, pack_project, verify_lock
 from .exitcodes import CONFORMANCE_FAILURE, INPUT_ERROR, INTERNAL_ERROR, for_error
-from .limits import RESOURCE_MODEL, ResourceBudget, UNTRUSTED_RESOURCE_BUDGET
+from .limits import RESOURCE_MODEL, ResourceBudget, UNTRUSTED_PROCESS_BUDGET, UNTRUSTED_RESOURCE_BUDGET
 
 VERSION = __version__
 
@@ -142,7 +142,8 @@ def _resource_profile_arg(parser: argparse.ArgumentParser) -> None:
         default="default",
         help=(
             "実行環境の資源ポリシー。untrustedは公開サービス向けの"
-            "UNTRUSTED_RESOURCE_BUDGETを適用（OS隔離や権限付与とは別）"
+            "UNTRUSTED_RESOURCE_BUDGETを適用。runでstrict OS sandboxと"
+            "併用するとCPU/アドレス空間のprocess budgetも適用"
         ),
     )
 
@@ -485,7 +486,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"run", "debug", "profile"} and getattr(args, "os_sandbox", "off") == "strict" and __import__("os").environ.get("SAGA_OS_SANDBOX_ACTIVE") != "1":
         from .sandbox import run_cli_in_strict_sandbox
         original = list(argv) if argv is not None else sys.argv[1:]
-        return run_cli_in_strict_sandbox(original)
+        process_budget = (
+            UNTRUSTED_PROCESS_BUDGET
+            if getattr(args, "resource_profile", "default") == "untrusted"
+            else None
+        )
+        return run_cli_in_strict_sandbox(original, process_budget=process_budget)
     source = ""; filename = "<input>"
     try:
         if args.command == "capabilities":

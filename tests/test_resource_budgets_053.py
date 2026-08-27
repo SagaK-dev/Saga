@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from saga import ResourceBudget, UNTRUSTED_RESOURCE_BUDGET, compile_file, compile_source, run_source
+from saga import ResourceBudget, UNTRUSTED_RESOURCE_BUDGET, compile_file, compile_source, run_file, run_source
 from saga.errors import LexLimitError, ParseLimitError, RuntimeResourceError
 from saga.limits import NORMATIVE_RESOURCE_LIMITS, RESOURCE_MODEL, source_size_bytes
 
@@ -15,6 +15,7 @@ class ResourceBudgetTests(unittest.TestCase):
         self.assertEqual(RESOURCE_MODEL, "no-fixed-normative-ceilings")
         self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_source_bytes)
         self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_steps)
+        self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_output_bytes)
 
     def test_invalid_budget_values_fail_at_configuration_time(self):
         with self.assertRaises(ValueError):
@@ -23,6 +24,8 @@ class ResourceBudgetTests(unittest.TestCase):
             ResourceBudget(max_import_depth=-1)
         with self.assertRaises(ValueError):
             ResourceBudget(max_steps=True)
+        with self.assertRaises(ValueError):
+            ResourceBudget(max_output_bytes=0)
         self.assertEqual(ResourceBudget(max_import_depth=0).max_import_depth, 0)
 
     def test_source_size_uses_utf8_bytes_without_ascii_assumptions(self):
@@ -83,6 +86,32 @@ class ResourceBudgetTests(unittest.TestCase):
                     str(root / "main.saga"),
                     resource_budget=ResourceBudget(max_modules=2),
                 )
+
+    def test_output_budget_caps_total_utf8_output_without_partial_event(self):
+        captured: list[str] = []
+        with self.assertRaises(RuntimeResourceError):
+            run_source(
+                'print("あ")\nprint("b")',
+                output=captured.append,
+                resource_budget=ResourceBudget(max_output_bytes=5),
+            )
+        self.assertEqual(captured, ["あ"])
+
+    def test_output_budget_is_shared_across_source_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "main.saga").write_text(
+                'use "a.saga"\nprint("main")\n', encoding="utf-8"
+            )
+            (root / "a.saga").write_text('print("module")\n', encoding="utf-8")
+            captured: list[str] = []
+            with self.assertRaises(RuntimeResourceError):
+                run_file(
+                    str(root / "main.saga"),
+                    output=captured.append,
+                    resource_budget=ResourceBudget(max_output_bytes=10),
+                )
+            self.assertEqual(captured, ["module"])
 
     def test_resource_step_budget_cannot_be_relaxed_by_explicit_step_limit(self):
         source = "var n = 0\nwhile true { n = n + 1 }"

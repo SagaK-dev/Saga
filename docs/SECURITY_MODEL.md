@@ -1,4 +1,4 @@
-# Saga 0.10.0 security model
+# Saga security model
 
 Saga combines static checking with deny-by-default hosted capabilities and explicit isolation boundaries.
 
@@ -28,13 +28,13 @@ On Linux where unprivileged user namespaces are available, strict plugin executi
 
 ## Untrusted-source resource policy
 
-Saga itself keeps the `no-fixed-normative-ceilings` resource model. Hosted services can separately pass a `ResourceBudget` to the Python API to bound source bytes, tokens, AST nodes, source-import depth, source-unit count, and interpreter steps without changing language conformance. `UNTRUSTED_RESOURCE_BUDGET` is a conservative reference preset for playgrounds, bots, and similar services; operators should tune or replace it for their workload. The CLI exposes the same preset as `--resource-profile untrusted` on `run`, `check`, and `test`; the default profile remains unchanged.
+Saga itself keeps the `no-fixed-normative-ceilings` resource model. Hosted services can separately pass a `ResourceBudget` to the Python API to bound source bytes, tokens, AST nodes, source-import depth, source-unit count, interpreter steps, and total Saga output bytes without changing language conformance. `UNTRUSTED_RESOURCE_BUDGET` is a conservative reference preset for playgrounds, bots, and similar services; operators should tune or replace it for their workload. The CLI exposes the same preset as `--resource-profile untrusted` on `run`, `check`, and `test`; the default profile remains unchanged.
 
-If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the stricter value so an execution request cannot relax the host policy. Omitting `resource_budget` or using the CLI's `default` resource profile preserves the previous unlimited-by-policy behavior. The `untrusted` resource profile does not grant capabilities and does not imply OS isolation; combine it with an appropriate capability policy and, on supported Linux hosts, `--os-sandbox strict` when a whole-program OS boundary is required. These application-level budgets complement rather than replace OS/process memory, CPU, filesystem, and network isolation.
+If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the stricter value so an execution request cannot relax the host policy. Omitting `resource_budget` or using the CLI's `default` resource profile preserves the previous unlimited-by-policy behavior. The output budget counts UTF-8 payload bytes plus one logical line separator per output event and is shared across imported source modules and task forks. The `untrusted` resource profile does not grant capabilities and does not imply OS isolation. When `saga run --resource-profile untrusted --os-sandbox strict` is used on Linux, Saga also applies the reference `UNTRUSTED_PROCESS_BUDGET` to the isolated child: CPU time is bounded with `RLIMIT_CPU` and virtual address space with `RLIMIT_AS`. These are process ceilings, not a claim about wall-clock time or resident-set memory. Embedding APIs do not mutate the host application's process limits.
 
 ## Whole-program OS sandbox
 
-`--os-sandbox strict` currently has a Linux implementation. It creates user/mount/PID/IPC/UTS/network namespaces and requires `PR_SET_NO_NEW_PRIVS` before executing the isolated Saga process. The mount namespace prevents later mount-table changes from affecting the host, but it does not by itself hide the host filesystem; file access remains governed by Saga's path capabilities. This is defense in depth, not a claim of a formally verified sandbox. Windows AppContainer/Job Object and macOS seatbelt implementations are not present in 0.10.0; strict mode on unsupported platforms refuses to run.
+`--os-sandbox strict` currently has a Linux implementation. It creates user/mount/PID/IPC/UTS/network namespaces and requires `PR_SET_NO_NEW_PRIVS` before executing the isolated Saga process. The mount namespace prevents later mount-table changes from affecting the host, but it does not by itself hide the host filesystem; file access remains governed by Saga's path capabilities. This is defense in depth, not a claim of a formally verified sandbox. Windows AppContainer/Job Object and macOS seatbelt implementations are not currently present; strict mode on unsupported platforms refuses to run.
 
 ## Independent review status
 
