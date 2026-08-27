@@ -34,7 +34,7 @@ If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the 
 
 ## Whole-program OS sandbox
 
-`--os-sandbox strict` currently has a Linux implementation. It creates user/PID/IPC/UTS/network namespaces; file access remains governed by Saga's path capabilities. This is defense in depth, not a claim of a formally verified sandbox. Windows AppContainer/Job Object and macOS seatbelt implementations are not present in 0.10.0; strict mode on unsupported platforms refuses to run.
+`--os-sandbox strict` currently has a Linux implementation. It creates user/mount/PID/IPC/UTS/network namespaces and requires `PR_SET_NO_NEW_PRIVS` before executing the isolated Saga process. The mount namespace prevents later mount-table changes from affecting the host, but it does not by itself hide the host filesystem; file access remains governed by Saga's path capabilities. This is defense in depth, not a claim of a formally verified sandbox. Windows AppContainer/Job Object and macOS seatbelt implementations are not present in 0.10.0; strict mode on unsupported platforms refuses to run.
 
 ## Independent review status
 
