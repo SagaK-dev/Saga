@@ -99,14 +99,18 @@ class FineActuatorBank:
 
 @dataclass(slots=True)
 class CyclicClock:
-    """Hosted cyclic scheduler with a 4 kHz-capable Linux timer backend.
+    """Hosted frequency clock with drift-free rational phase accumulation.
 
-    Linux uses ``timerfd`` when available. The kernel counts every periodic
-    expiration, so a temporarily pre-empted Saga process can observe how many
-    logical control ticks became due instead of silently losing them. Other
-    platforms use an absolute-deadline sleep/spin fallback. This is still
-    hosted soft real-time: it does not promise that physical I/O happened at
-    every 250 us boundary.
+    For frequencies whose period is an integer number of nanoseconds, Linux may
+    use periodic timerfd and retain the kernel expiration counter. For
+    fractional-nanosecond periods such as 60 kHz (16_666.666... ns), deadlines
+    are derived from cycle / frequency_hz rather than repeatedly adding a
+    rounded period. This removes deterministic long-term phase drift from the
+    hosted reference scheduler.
+
+    This is still hosted soft real-time. It expresses and measures the requested
+    cadence but does not prove that a general-purpose OS will schedule physical
+    I/O at every deadline.
     """
 
     frequency_hz: int
@@ -121,18 +125,22 @@ class CyclicClock:
     last_late_us: float = 0.0
     last_due: int = 0
     max_due: int = 0
-    backend: str = field(init=False, default="hybrid-sleep-spin")
+    backend: str = field(init=False, default="rational-deadline-sleep-spin")
     _timer_fd: int = field(init=False, default=-1, repr=False)
     _spin_guard_ns: int = field(init=False, default=0, repr=False)
+    _anchor_ns: int = field(init=False, default=0, repr=False)
 
     def __post_init__(self) -> None:
-        if self.frequency_hz < 1 or self.frequency_hz > 100_000:
-            raise MachineControlError("cycle frequency must be 1..100000 Hz")
-        self.period_ns = max(1, round(1_000_000_000 / self.frequency_hz))
-        self.period_s = self.period_ns / 1_000_000_000.0
+        if self.frequency_hz < 1 or self.frequency_hz > 1_000_000:
+            raise MachineControlError("cycle frequency must be 1..1000000 Hz")
+        self.period_ns = max(1, 1_000_000_000 // self.frequency_hz)
+        self.period_s = 1.0 / self.frequency_hz
         self._spin_guard_ns = min(80_000, max(2_000, self.period_ns // 3))
-        self.next_deadline_ns = time.monotonic_ns() + self.period_ns
-        if all(hasattr(os, name) for name in ("timerfd_create", "timerfd_settime_ns")):
+        self._anchor_ns = time.monotonic_ns()
+        self.next_deadline_ns = self._deadline_ns(1)
+
+        exact_integer_period = 1_000_000_000 % self.frequency_hz == 0
+        if exact_integer_period and all(hasattr(os, name) for name in ("timerfd_create", "timerfd_settime_ns")):
             try:
                 self._timer_fd = os.timerfd_create(time.CLOCK_MONOTONIC, flags=getattr(os, "TFD_CLOEXEC", 0))
                 os.timerfd_settime_ns(self._timer_fd, initial=self.period_ns, interval=self.period_ns)
@@ -140,44 +148,37 @@ class CyclicClock:
             except OSError:
                 self._timer_fd = -1
 
+    def _deadline_ns(self, cycle: int) -> int:
+        if cycle <= 0:
+            return self._anchor_ns
+        whole_seconds, remainder_cycles = divmod(cycle, self.frequency_hz)
+        fractional_ns = (
+            remainder_cycles * 1_000_000_000 + self.frequency_hz - 1
+        ) // self.frequency_hz
+        return self._anchor_ns + whole_seconds * 1_000_000_000 + fractional_ns
+
+    def _due_cycle(self, actual_ns: int) -> int:
+        elapsed_ns = max(0, actual_ns - self._anchor_ns)
+        return (elapsed_ns * self.frequency_hz) // 1_000_000_000
+
     def _record(self, due: int, actual_ns: int) -> int:
         due = max(1, int(due))
-        expected_latest_ns = self.next_deadline_ns + (due - 1) * self.period_ns
+        expected_latest_ns = self._deadline_ns(self.cycles + due)
         late_ns = actual_ns - expected_latest_ns
-        late_us = late_ns / 1_000.0
-        self.last_late_us = late_us
+        self.last_late_us = late_ns / 1_000.0
         self.last_due = due
         self.max_due = max(self.max_due, due)
         self.wait_calls += 1
         self.cycles += due
         if due > 1:
             self.overruns += due - 1
-        if self._timer_fd < 0 and late_ns > self.period_ns:
-            # The portable fallback has no kernel expiration counter, so derive
-            # missed periods from the absolute deadline. timerfd counts are
-            # authoritative and must never be double-counted here.
-            extra = late_ns // self.period_ns
-            due += extra
-            self.cycles += extra
-            self.overruns += extra
-            self.last_due += extra
-            self.max_due = max(self.max_due, self.last_due)
-            expected_latest_ns += extra * self.period_ns
-            late_us = (actual_ns - expected_latest_ns) / 1_000.0
-            self.last_late_us = late_us
         self.max_late_us = max(self.max_late_us, max(0.0, self.last_late_us))
         self.sum_abs_jitter_us += abs(self.last_late_us)
-        self.next_deadline_ns += self.last_due * self.period_ns
-        return self.last_due
+        self.next_deadline_ns = self._deadline_ns(self.cycles + 1)
+        return due
 
     def wait_due(self) -> int:
-        """Block until the next tick and return the number of due control ticks.
-
-        At 4 kHz a return value of 1 means the process kept up with the 250 us
-        cadence. A value greater than 1 means the kernel observed missed host
-        scheduling slots; callers may run deterministic catch-up state updates,
-        while physical output should still be treated as late.
-        """
+        """Block until the next logical tick and return the number now due."""
         if self._timer_fd >= 0:
             raw = os.read(self._timer_fd, 8)
             if len(raw) != 8:
@@ -192,10 +193,11 @@ class CyclicClock:
                 break
             if remaining > self._spin_guard_ns:
                 time.sleep((remaining - self._spin_guard_ns) / 1_000_000_000.0)
-            # Final short interval intentionally spins to avoid sub-ms sleep
-            # quantisation on platforms without timerfd.
+            # The final short interval intentionally spins. The hosted runtime
+            # makes no hard-real-time guarantee; this only avoids coarse sleeps.
         actual = time.monotonic_ns()
-        due = 1 + max(0, (actual - self.next_deadline_ns) // self.period_ns)
+        due_cycle = self._due_cycle(actual)
+        due = max(1, due_cycle - self.cycles)
         return self._record(due, actual)
 
     def wait(self) -> Decimal:
@@ -206,7 +208,8 @@ class CyclicClock:
         self.cycles = self.wait_calls = self.overruns = 0
         self.max_late_us = self.sum_abs_jitter_us = self.last_late_us = 0.0
         self.last_due = self.max_due = 0
-        self.next_deadline_ns = time.monotonic_ns() + self.period_ns
+        self._anchor_ns = time.monotonic_ns()
+        self.next_deadline_ns = self._deadline_ns(1)
         if self._timer_fd >= 0:
             os.timerfd_settime_ns(self._timer_fd, initial=self.period_ns, interval=self.period_ns)
 
@@ -222,7 +225,8 @@ class CyclicClock:
         avg = self.sum_abs_jitter_us / self.wait_calls if self.wait_calls else 0.0
         return json.dumps({
             "frequency_hz": self.frequency_hz,
-            "period_us": self.period_ns / 1_000.0,
+            "period_us": 1_000_000.0 / self.frequency_hz,
+            "period_ns_floor": self.period_ns,
             "cycles": self.cycles,
             "wait_calls": self.wait_calls,
             "overruns": self.overruns,
@@ -231,6 +235,7 @@ class CyclicClock:
             "max_late_us": self.max_late_us,
             "mean_abs_jitter_us": avg,
             "backend": self.backend,
+            "phase_model": "exact-rational-frequency",
             "timing_class": "hosted-soft-realtime",
         }, separators=(",", ":"))
 
