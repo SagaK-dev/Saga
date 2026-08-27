@@ -208,6 +208,8 @@ _CONTROL_SAFE_MACHINE_EXACT = {
     "machine.control_guard_begin", "machine.control_guard_end", "machine.control_guard_ok",
     "machine.budget_begin", "machine.budget_end",
     "machine.slew", "machine.low_pass", "machine.deadband", "machine.integrate_clamped",
+    "machine.q31_from_ratio", "machine.q31_add_sat", "machine.q31_sub_sat",
+    "machine.q31_mul_sat", "machine.q31_mac_sat",
 }
 
 
