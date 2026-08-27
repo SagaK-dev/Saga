@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -144,10 +145,64 @@ public let answer: int = 42
             self.assertEqual(interface["schema"], "saga.module-interface.v1")
             self.assertEqual(load_module_interface(root / "models.smi.json", source=module)["abi_sha256"], interface["abi_sha256"])
             main = self.write(root, "main.saga", 'use "models.saga" as m\nprint(m.twice(m.answer))')
-            loaded = compile_file(str(main))
-            source_modules = [s for s in loaded.program.statements if isinstance(s, ast.SourceModuleStmt)]
-            self.assertEqual(len(source_modules), 1)
-            self.assertIsNotNone(source_modules[0].interface)
+            default_loaded = compile_file(str(main))
+            default_modules = [s for s in default_loaded.program.statements if isinstance(s, ast.SourceModuleStmt)]
+            self.assertEqual(len(default_modules), 1)
+            self.assertIsNone(default_modules[0].interface)
+
+            trusted_loaded = compile_file(str(main), trust_module_interfaces=True)
+            trusted_modules = [s for s in trusted_loaded.program.statements if isinstance(s, ast.SourceModuleStmt)]
+            self.assertEqual(len(trusted_modules), 1)
+            self.assertIsNotNone(trusted_modules[0].interface)
+
+    def test_fresh_looking_forged_interface_cannot_bypass_default_control_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = self.write(root, "controller.saga", '''
+module controller
+@control_tick(1000, 200)
+public fn tick(error: decimal) -> decimal {
+    return error
+}
+''')
+            build_module_interface(module)
+            iface_path = root / "controller.smi.json"
+            data = json.loads(iface_path.read_text(encoding="utf-8"))
+
+            module.write_text('''
+module controller
+use machine
+@control_tick(1000, 200)
+public fn tick(error: decimal) -> decimal {
+    let sampled_at = machine.monotonic_ns()
+    return error
+}
+'''.strip() + "\n", encoding="utf-8")
+
+            data["source_sha256"] = hashlib.sha256(module.read_bytes()).hexdigest()
+            build_payload = {
+                "source_sha256": data["source_sha256"],
+                "abi_sha256": data["abi_sha256"],
+                "dependencies": data.get("dependencies", []),
+            }
+            data["build_sha256"] = hashlib.sha256(
+                json.dumps(
+                    build_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            iface_path.write_text(
+                json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+
+            main = self.write(root, "main.saga", 'use "controller.saga" as ctrl\nprint(1)')
+            with self.assertRaises(TypeCheckError) as caught:
+                compile_file(str(main))
+
+            self.assertEqual(caught.exception.diagnostic_id, "SAGA-C492")
 
     def test_stale_interface_falls_back_to_source_checking(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,10 +210,10 @@ public let answer: int = 42
             module = self.write(root, "models.saga", 'module models\npublic fn twice(x: int) -> int = x * 2')
             build_module_interface(module)
             main = self.write(root, "main.saga", 'use "models.saga" as m\nprint(m.twice(2))')
-            compile_file(str(main))
+            compile_file(str(main), trust_module_interfaces=True)
             module.write_text('module models\npublic fn twice(x: int) -> int = "bad"\n', encoding="utf-8")
             with self.assertRaises(TypeCheckError):
-                compile_file(str(main))
+                compile_file(str(main), trust_module_interfaces=True)
 
     def test_dependency_abi_controls_parent_interface_freshness(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -289,11 +344,11 @@ let value: m.Child = m.Child("Aki", 7)
 print(value.greet())
 print(value.label())
 ''')
-            loaded = compile_file(str(main))
+            loaded = compile_file(str(main), trust_module_interfaces=True)
             source_modules = [st for st in loaded.program.statements if isinstance(st, ast.SourceModuleStmt)]
             self.assertTrue(source_modules and source_modules[0].interface is not None)
             output: list[str] = []
-            run_file(str(main), output=output.append)
+            run_file(str(main), output=output.append, trust_module_interfaces=True)
             self.assertEqual(output, ["Hello Aki", "Aki:7"])
 
     @unittest.skipUnless(shutil.which("go"), "Go toolchain required")
