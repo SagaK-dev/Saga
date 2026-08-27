@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from saga.api import SagaSession
-from saga.errors import RuntimeLanguageError
+from saga.errors import ParseLimitError, RuntimeLanguageError, RuntimeResourceError, TypeLimitError
 
 
 class SagaSessionTransaction054Tests(unittest.TestCase):
@@ -22,6 +23,43 @@ class SagaSessionTransaction054Tests(unittest.TestCase):
             self.assertEqual(session.interpreter.context.prec, original_precision)
             self.assertEqual(set(session.interpreter.enums), original_enum_names)
             self.assertNotIn("Temp", session.interpreter.globals.values)
+
+    def test_parse_recursion_is_reported_as_saga_limit_error(self):
+        with SagaSession(filename="repl.saga") as session:
+            with (
+                mock.patch("saga.api.Parser.parse", side_effect=RecursionError("host stack")),
+                self.assertRaises(ParseLimitError) as ctx,
+            ):
+                session.execute("print(1)\n")
+
+        self.assertEqual(ctx.exception.filename, "repl.saga")
+        self.assertEqual(ctx.exception.code, "SAGA-P002")
+
+    def test_type_recursion_is_reported_as_saga_limit_error(self):
+        with SagaSession(filename="repl.saga") as session:
+            with (
+                mock.patch("saga.api.TypeChecker.check", side_effect=RecursionError("host stack")),
+                self.assertRaises(TypeLimitError) as ctx,
+            ):
+                session.execute("print(1)\n")
+
+        self.assertEqual(ctx.exception.filename, "repl.saga")
+        self.assertEqual(ctx.exception.code, "SAGA-T002")
+
+    def test_runtime_recursion_is_reported_as_saga_resource_error(self):
+        with SagaSession(filename="repl.saga") as session:
+            with (
+                mock.patch.object(
+                    session.interpreter,
+                    "interpret_incremental",
+                    side_effect=RecursionError("host stack"),
+                ),
+                self.assertRaises(RuntimeResourceError) as ctx,
+            ):
+                session.execute("print(1)\n")
+
+        self.assertEqual(ctx.exception.filename, "repl.saga")
+        self.assertEqual(ctx.exception.code, "SAGA-R002")
 
     def test_successful_submission_commits_numeric_context_and_enum_registry(self):
         with SagaSession() as session:

@@ -5,7 +5,7 @@ import copy
 
 from .checker import TypeChecker
 from .ast_limits import ast_node_count, validate_ast_size
-from .errors import ParseLimitError, TypeLimitError
+from .errors import ParseLimitError, RuntimeResourceError, TypeLimitError
 from .interpreter import Interpreter
 from .lexer import Lexer
 from .limits import (
@@ -164,13 +164,34 @@ class SagaSession:
         check_source_bytes(source_size_bytes(source), self.filename, self.resource_budget)
         tokens = Lexer(source, self.filename).scan_tokens()
         check_token_count(len(tokens), self.filename, self.resource_budget)
-        with adaptive_recursion_capacity(len(tokens)):
-            program = Parser(tokens, self.filename).parse()
+        try:
+            with adaptive_recursion_capacity(len(tokens)):
+                program = Parser(tokens, self.filename).parse()
+        except RecursionError as exc:
+            raise ParseLimitError(
+                "ホストの解析スタックを使い切ったため解析を継続できません",
+                1, 1, self.filename,
+                "Saga規格の固定上限ではありません。実装資源を増やすか、必要に応じて式を分割してください",
+            ) from exc
         validate_ast_size(program, self.filename, _ast_budget(self.resource_budget))
         candidate = copy.deepcopy(self.checker)
-        with adaptive_recursion_capacity(ast_node_count(program)):
-            candidate.check(program)
-        self.interpreter.interpret_incremental(program)
+        try:
+            with adaptive_recursion_capacity(ast_node_count(program)):
+                candidate.check(program)
+        except RecursionError as exc:
+            raise TypeLimitError(
+                "ホストの型検査スタックを使い切ったため検査を継続できません",
+                1, 1, self.filename,
+                "Saga規格の固定上限ではありません。実装資源を増やすか、必要に応じて宣言を分割してください",
+            ) from exc
+        try:
+            self.interpreter.interpret_incremental(program)
+        except RecursionError as exc:
+            raise RuntimeResourceError(
+                "ホストの実行スタックを使い切りました",
+                1, 1, self.filename,
+                "Saga規格の固定再帰上限ではありません。ホスト資源またはアルゴリズムを確認してください",
+            ) from exc
         self.checker = candidate
 
     def close(self) -> None:
