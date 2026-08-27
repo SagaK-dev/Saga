@@ -97,6 +97,24 @@ class ResourceBudgetTests(unittest.TestCase):
             )
         self.assertEqual(captured, ["あ"])
 
+    def test_output_budget_is_preserved_across_async_await_boundary(self):
+        captured: list[str] = []
+        source = """
+        async fn noisy() -> unit {
+            print("あ")
+            print("b")
+        }
+        let work = noisy()
+        await work
+        """
+        with self.assertRaises(RuntimeResourceError):
+            run_source(
+                source,
+                output=captured.append,
+                resource_budget=ResourceBudget(max_output_bytes=5),
+            )
+        self.assertEqual(captured, ["あ"])
+
     def test_output_budget_is_shared_across_source_modules(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -999,7 +999,7 @@ class Interpreter:
             if not isinstance(value, Future):
                 self._runtime_error(expr.keyword, "await には future[T] が必要です", diagnostic_id="SAGA-R184")
             try: return value.result()
-            except (SagaThrown, RuntimeLanguageError, NativeFailure): raise
+            except (SagaThrown, RuntimeLanguageError, RuntimeResourceError, NativeFailure): raise
             except Exception as exc: raise NativeFailure(f"非同期処理が失敗しました: {exc}") from exc
         if isinstance(expr, ast.MoveExpr):
             if not isinstance(expr.value, ast.Variable):
