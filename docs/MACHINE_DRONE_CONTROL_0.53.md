@@ -58,6 +58,37 @@ The current drone stack includes:
 
 Flight-state changes remain explicit. Sensor/link/health observations do not silently arm, disarm, enter RTL, or select another mode.
 
+## 60 kHz theoretical control profile
+
+Saga can now express a 60,000 Hz source-level control contract without rounding
+the cadence to an integer number of microseconds:
+
+```saga
+@control_tick(60000, 12.5)
+fn current_tick(previous: decimal, sample: decimal) -> decimal {
+    let limited = machine.slew(previous, sample, 1000.0, 0.0000166666666666667)
+    let filtered = machine.low_pass(previous, limited, 0.25)
+    let centered = machine.deadband(filtered, 0.001)
+    return machine.integrate_clamped(previous, centered, 0.0000166666666666667, -1.0, 1.0)
+}
+```
+
+The hosted `machine.cyclic_clock(60000)` uses rational phase accumulation:
+deadline N is derived from `N / 60000` seconds from the anchor rather than by
+repeatedly adding a rounded 16,667 ns period. Therefore cycle 60,000 maps back
+to exactly one theoretical second and does not accumulate deterministic period
+rounding drift.
+
+The 12.5 us annotation is a source budget, not measured WCET. Achieving a
+physical 60 kHz current loop still requires a target-specific native backend,
+interrupt/timer design, bounded execution, target WCET measurement, I/O timing,
+and HIL/physical qualification.
+
+High-rate deterministic signal primitives available inside checked control
+ticks include `machine.slew`, `machine.low_pass`, `machine.deadband`, and
+`machine.integrate_clamped`. These functions keep state explicit in Saga code
+rather than hiding shared mutable state behind the control boundary.
+
 ## Control language contracts
 
 Saga control code can use source-level contracts such as:
