@@ -76,6 +76,47 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertIn(contest_demo.RISKY_LINE.strip(), index)
             self.assertIn("50 µs", index)
 
+    def test_integrity_checks_fail_closed_on_unrelated_results(self):
+        self.assertFalse(contest_demo._safe_runtime_matches(["0.4"]))
+        self.assertFalse(contest_demo._safe_runtime_matches(["0.3", "extra"]))
+
+        expected_timing = dict(contest_demo.EXPECTED_TIMING)
+        self.assertTrue(
+            contest_demo._timing_matches_expected({
+                "control_functions": [{"role": "tick", "timing": expected_timing}],
+            })
+        )
+        wrong_timing = {**expected_timing, "budget_us": 34}
+        self.assertFalse(
+            contest_demo._timing_matches_expected({
+                "control_functions": [{"role": "tick", "timing": wrong_timing}],
+            })
+        )
+
+        expected_issue = {
+            "code": contest_demo.EXPECTED_UNSAFE_CODE,
+            "line": contest_demo._risky_line_number(),
+            "column": 1,
+            "message": "machine.monotonic_ns is not allowed here",
+            "hint": "sample outside the control tick",
+        }
+        self.assertTrue(contest_demo._unsafe_issue_matches_expected({"issues": [expected_issue]}))
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "code": "SAGA-C491"}],
+            })
+        )
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "line": expected_issue["line"] + 1}],
+            })
+        )
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "hint": ""}],
+            })
+        )
+
     def test_unsafe_source_is_safe_source_plus_exactly_one_line(self):
         self.assertEqual(contest_demo.UNSAFE_SOURCE.count(contest_demo.RISKY_LINE), 1)
         self.assertEqual(
