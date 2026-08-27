@@ -50,7 +50,7 @@ from .machine_control import (
     AxisController, CANDevice, EtherCATRawDevice, ControlCycle, DCMotor, EncoderTracker, I2CDevice, JerkLimitedProfile,
     MachineControlError, ModbusRTUMaster, ModbusTCPMaster, MotionProfile, PIDController,
     PWMChannel, SPIDevice, SafetyLatch, Servo, UARTDevice, Watchdog, can_frame_json,
-    low_pass, modbus_crc16, servo_duty, slew,
+    deadband, integrate_clamped, low_pass, modbus_crc16, servo_duty, slew,
 )
 from .vision_control import (
     VisionError, Detection, CentroidTracker, PinholeCamera, OpenCVDNNModel, OpenCVYOLOXDetector, OpenCVDirectObjectDetector,
@@ -2477,6 +2477,17 @@ def machine_slew(_interpreter, args):
 @native("machine", "low_pass", (DECIMAL, DECIMAL, DECIMAL), DECIMAL)
 def machine_low_pass(_interpreter, args):
     try: return low_pass(args[0], args[1], args[2])
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+
+@native("machine", "deadband", (DECIMAL, DECIMAL), DECIMAL)
+def machine_deadband(_interpreter, args):
+    try: return deadband(args[0], args[1])
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+@native("machine", "integrate_clamped", (DECIMAL, DECIMAL, DECIMAL, DECIMAL, DECIMAL), DECIMAL)
+def machine_integrate_clamped(_interpreter, args):
+    try: return integrate_clamped(args[0], args[1], args[2], args[3], args[4])
     except MachineControlError as exc: raise _machine_failure(exc) from exc
 
 @native("machine", "profile", (DECIMAL, DECIMAL, DECIMAL, DECIMAL, DECIMAL), MACHINE_PROFILE)
