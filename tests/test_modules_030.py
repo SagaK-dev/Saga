@@ -210,10 +210,10 @@ public fn tick(error: decimal) -> decimal {
             module = self.write(root, "models.saga", 'module models\npublic fn twice(x: int) -> int = x * 2')
             build_module_interface(module)
             main = self.write(root, "main.saga", 'use "models.saga" as m\nprint(m.twice(2))')
-            compile_file(str(main))
+            compile_file(str(main), trust_module_interfaces=True)
             module.write_text('module models\npublic fn twice(x: int) -> int = "bad"\n', encoding="utf-8")
             with self.assertRaises(TypeCheckError):
-                compile_file(str(main))
+                compile_file(str(main), trust_module_interfaces=True)
 
     def test_dependency_abi_controls_parent_interface_freshness(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -344,11 +344,11 @@ let value: m.Child = m.Child("Aki", 7)
 print(value.greet())
 print(value.label())
 ''')
-            loaded = compile_file(str(main))
+            loaded = compile_file(str(main), trust_module_interfaces=True)
             source_modules = [st for st in loaded.program.statements if isinstance(st, ast.SourceModuleStmt)]
             self.assertTrue(source_modules and source_modules[0].interface is not None)
             output: list[str] = []
-            run_file(str(main), output=output.append)
+            run_file(str(main), output=output.append, trust_module_interfaces=True)
             self.assertEqual(output, ["Hello Aki", "Aki:7"])
 
     @unittest.skipUnless(shutil.which("go"), "Go toolchain required")
