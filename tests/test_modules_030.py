@@ -160,8 +160,8 @@ public let answer: int = 42
             root = Path(tmp)
             module = self.write(root, "controller.saga", '''
 module controller
-public @control_tick(1000, 200)
-fn tick(error: decimal) -> decimal {
+@control_tick(1000, 200)
+public fn tick(error: decimal) -> decimal {
     return error
 }
 ''')
@@ -172,8 +172,8 @@ fn tick(error: decimal) -> decimal {
             module.write_text('''
 module controller
 use machine
-public @control_tick(1000, 200)
-fn tick(error: decimal) -> decimal {
+@control_tick(1000, 200)
+public fn tick(error: decimal) -> decimal {
     let sampled_at = machine.monotonic_ns()
     return error
 }
