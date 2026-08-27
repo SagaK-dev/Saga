@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from saga import ResourceBudget, UNTRUSTED_RESOURCE_BUDGET, compile_file, compile_source, run_file, run_source
+from saga import ProcessBudget, ResourceBudget, UNTRUSTED_PROCESS_BUDGET, UNTRUSTED_RESOURCE_BUDGET, compile_file, compile_source, run_file, run_source
 from saga.errors import LexLimitError, ParseLimitError, RuntimeResourceError
 from saga.limits import NORMATIVE_RESOURCE_LIMITS, RESOURCE_MODEL, source_size_bytes
 
@@ -16,6 +16,7 @@ class ResourceBudgetTests(unittest.TestCase):
         self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_source_bytes)
         self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_steps)
         self.assertIsNotNone(UNTRUSTED_RESOURCE_BUDGET.max_output_bytes)
+        self.assertIsNotNone(UNTRUSTED_PROCESS_BUDGET.max_wall_seconds)
 
     def test_invalid_budget_values_fail_at_configuration_time(self):
         with self.assertRaises(ValueError):
@@ -27,6 +28,10 @@ class ResourceBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ResourceBudget(max_output_bytes=0)
         self.assertEqual(ResourceBudget(max_import_depth=0).max_import_depth, 0)
+        with self.assertRaises(ValueError):
+            ProcessBudget(max_wall_seconds=0)
+        with self.assertRaises(ValueError):
+            ProcessBudget(max_wall_seconds=True)
 
     def test_source_size_uses_utf8_bytes_without_ascii_assumptions(self):
         self.assertEqual(source_size_bytes("aあ😀"), 8)
