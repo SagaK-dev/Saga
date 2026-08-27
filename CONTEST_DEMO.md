@@ -42,11 +42,12 @@ Expected result:
 
 ```text
 single change: VERIFIED
+integrity:     VERIFIED
 safe:   PASS
 unsafe: FAIL
 ```
 
-The command exits successfully only when all three conditions remain true: the two sources differ by exactly one expected added line, the safe program passes, and the unsafe program fails with a real `SAGA-C...` control diagnostic.
+The command exits successfully only when the contest invariants remain true: the two sources differ by exactly one expected added line, the safe program executes to the expected `0.3` output, the 20 kHz / 35 µs timing contract is reported exactly, the safe analysis covers the loaded file successfully, and the unsafe program fails at the added line with the expected stable `SAGA-C492` diagnostic and a non-empty correction hint. This prevents an unrelated future failure from being mistaken for a valid contest demonstration.
 
 ## 3. What changed between the two programs?
 
@@ -101,7 +102,7 @@ saga-control-report build/contest-demo/diff_safe_control.saga
 Also confirm:
 
 - Core CI is green on the exact commit being submitted.
-- The demo prints `single change: VERIFIED` before the PASS/FAIL contrast.
+- The demo prints both `single change: VERIFIED` and `integrity: VERIFIED` before the PASS/FAIL contrast.
 - `build/contest-demo/index.html` opens correctly at the presentation resolution.
 - The execution video uses the same commit/source as the submission.
 - The author can explain `@control_tick`, `@control_safe`, the one rejected operation, and one design trade-off without reading a script.

@@ -34,6 +34,16 @@ RISKY_LINE = "    let sampled_at = machine.monotonic_ns()\n"
 _TICK_OPEN = "fn current_tick(error: decimal) -> decimal {\n"
 UNSAFE_SOURCE = SAFE_SOURCE.replace(_TICK_OPEN, _TICK_OPEN + RISKY_LINE, 1)
 
+EXPECTED_SAFE_OUTPUT = ("0.3",)
+EXPECTED_UNSAFE_CODE = "SAGA-C492"
+EXPECTED_TIMING = {
+    "rate_hz": 20_000,
+    "period_us": 50.0,
+    "budget_us": 35,
+    "budget_percent": 70.0,
+    "headroom_us": 15.0,
+}
+
 
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +59,11 @@ def _single_change_is_exact() -> bool:
         UNSAFE_SOURCE.count(RISKY_LINE) == 1
         and UNSAFE_SOURCE.replace(RISKY_LINE, "", 1) == SAFE_SOURCE
     )
+
+
+def _risky_line_number() -> int:
+    offset = UNSAFE_SOURCE.index(RISKY_LINE)
+    return UNSAFE_SOURCE.count("\\n", 0, offset) + 1
 
 
 def _first_issue(report: dict[str, Any]) -> dict[str, Any] | None:
@@ -73,6 +88,29 @@ def _display_number(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def _safe_runtime_matches(output: list[str]) -> bool:
+    return tuple(output) == EXPECTED_SAFE_OUTPUT
+
+
+def _timing_matches_expected(report: dict[str, Any]) -> bool:
+    timing = _timing_data(report)
+    if not timing:
+        return False
+    return all(timing.get(key) == expected for key, expected in EXPECTED_TIMING.items())
+
+
+def _unsafe_issue_matches_expected(report: dict[str, Any]) -> bool:
+    issue = _first_issue(report)
+    if not issue:
+        return False
+    return (
+        issue.get("code") == EXPECTED_UNSAFE_CODE
+        and issue.get("line") == _risky_line_number()
+        and "machine.monotonic_ns" in str(issue.get("message") or "")
+        and bool(str(issue.get("hint") or "").strip())
+    )
 
 
 def _report_card(
@@ -362,12 +400,24 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
 
     unsafe_codes = [str(item.get("code") or "") for item in unsafe_report.get("issues", [])]
     exact_single_change = _single_change_is_exact()
+    safe_runtime_verified = _safe_runtime_matches(safe_runtime_output)
+    timing_verified = _timing_matches_expected(safe_report)
+    unsafe_diagnostic_verified = _unsafe_issue_matches_expected(unsafe_report)
+    analysis_scope_verified = (
+        safe_report.get("analysis_scope") == "loaded-program"
+        and safe_report.get("language_check", {}).get("status") == "pass"
+    )
+    integrity_verified = all((
+        exact_single_change,
+        safe_runtime_verified,
+        timing_verified,
+        unsafe_diagnostic_verified,
+        analysis_scope_verified,
+    ))
     valid = (
-        exact_single_change
+        integrity_verified
         and safe_report.get("verdict") == "pass"
         and unsafe_report.get("verdict") == "fail"
-        and any(code.startswith("SAGA-C") for code in unsafe_codes)
-        and len(safe_runtime_output) == 1
     )
 
     manifest = {
@@ -385,6 +435,19 @@ def run_demo(output_dir: str | Path) -> dict[str, Any]:
         "source_sha256": {
             "safe": _sha256_text(SAFE_SOURCE),
             "unsafe": _sha256_text(UNSAFE_SOURCE),
+        },
+        "integrity": {
+            "verified": integrity_verified,
+            "safe_runtime": safe_runtime_verified,
+            "timing_contract": timing_verified,
+            "unsafe_diagnostic": unsafe_diagnostic_verified,
+            "analysis_scope": analysis_scope_verified,
+            "expected": {
+                "safe_runtime_output": list(EXPECTED_SAFE_OUTPUT),
+                "unsafe_code": EXPECTED_UNSAFE_CODE,
+                "unsafe_line": _risky_line_number(),
+                "timing": EXPECTED_TIMING,
+            },
         },
         "observed": {
             "safe": safe_report.get("verdict"),
@@ -443,6 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"Saga {__version__} contest demo")
         print(f"single change: {'VERIFIED' if manifest['single_change']['verified'] else 'INVALID'}")
+        print(f"integrity:     {'VERIFIED' if manifest['integrity']['verified'] else 'INVALID'}")
         print(f"safe:   {str(manifest['observed']['safe']).upper()}")
         print(f"unsafe: {str(manifest['observed']['unsafe']).upper()}")
         if manifest["observed"]["unsafe_diagnostics"]:

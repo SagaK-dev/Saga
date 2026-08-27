@@ -23,9 +23,26 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(manifest["single_change"]["line"], contest_demo.RISKY_LINE.strip())
             self.assertEqual(manifest["observed"]["safe"], "pass")
             self.assertEqual(manifest["observed"]["unsafe"], "fail")
-            self.assertEqual(len(manifest["observed"]["safe_runtime_output"]), 1)
-            self.assertTrue(
-                any(code.startswith("SAGA-C") for code in manifest["observed"]["unsafe_diagnostics"])
+            self.assertEqual(
+                manifest["observed"]["safe_runtime_output"],
+                list(contest_demo.EXPECTED_SAFE_OUTPUT),
+            )
+            self.assertTrue(manifest["integrity"]["verified"])
+            self.assertTrue(manifest["integrity"]["safe_runtime"])
+            self.assertTrue(manifest["integrity"]["timing_contract"])
+            self.assertTrue(manifest["integrity"]["unsafe_diagnostic"])
+            self.assertTrue(manifest["integrity"]["analysis_scope"])
+            self.assertEqual(
+                manifest["integrity"]["expected"]["unsafe_code"],
+                contest_demo.EXPECTED_UNSAFE_CODE,
+            )
+            self.assertEqual(
+                manifest["integrity"]["expected"]["unsafe_line"],
+                contest_demo._risky_line_number(),
+            )
+            self.assertIn(
+                contest_demo.EXPECTED_UNSAFE_CODE,
+                manifest["observed"]["unsafe_diagnostics"],
             )
             for artifact in manifest["artifacts"]:
                 self.assertTrue((root / artifact).is_file(), artifact)
@@ -83,6 +100,7 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(rc, 0)
             text = output.getvalue()
             self.assertIn("single change: VERIFIED", text)
+            self.assertIn("integrity:     VERIFIED", text)
             self.assertIn("safe:   PASS", text)
             self.assertIn("unsafe: FAIL", text)
             self.assertIn("index.html", text)
