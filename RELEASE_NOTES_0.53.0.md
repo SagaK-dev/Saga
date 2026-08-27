@@ -10,6 +10,7 @@ Saga 0.53.0 is a development milestone that makes machine control, robotics, and
 - Adds an explainable Control Report that combines normal Saga language checking with source-level control-profile analysis, timing-contract summaries, stable diagnostics, and explicit evidence boundaries.
 - Applies the control contract consistently to class methods and checked helpers across the Python reference implementation and independent Go implementation.
 - Adds permanent machine/drone regression coverage to the core CI path for both the Python reference implementation and independent Go implementation.
+- Hardens isolated Python plugin bridges so a plugin manifest can request external module exports but cannot authorize them; the embedding host must independently approve the exact module/export pairs.
 - Adds a reproducible contest-facing safe/unsafe demo whose comparison is mechanically verified as exactly one added control-path line, plus clean wheel and source-distribution installation smoke tests.
 - Adds control-oriented examples and dedicated design/contest documents describing what is software evidence versus target-specific physical evidence.
 

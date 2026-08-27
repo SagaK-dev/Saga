@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -87,6 +88,49 @@ def _wire_in(value: object) -> object:
     return value
 
 
+def _normalize_imports(raw: object, *, label: str) -> dict[str, tuple[str, ...]]:
+    if not isinstance(raw, Mapping):
+        raise PluginSandboxError(f"{label} imports must be a mapping")
+    normalized: dict[str, tuple[str, ...]] = {}
+    for module, names in raw.items():
+        if (
+            not isinstance(module, str)
+            or not module
+            or any(not part.isidentifier() or part.startswith("_") for part in module.split("."))
+        ):
+            raise PluginSandboxError(f"{label} contains an invalid module name")
+        if isinstance(names, (str, bytes)) or not isinstance(names, Iterable):
+            raise PluginSandboxError(f"{label} exports for {module} must be an iterable of names")
+        exports = tuple(names)
+        if not all(isinstance(name, str) and name.isidentifier() and not name.startswith("_") for name in exports):
+            raise PluginSandboxError(f"{label} contains an invalid export name for {module}")
+        normalized[module] = tuple(dict.fromkeys(exports))
+    return normalized
+
+
+def _approve_imports(
+    requested: dict[str, tuple[str, ...]],
+    trusted_imports: Mapping[str, Iterable[str]] | None,
+) -> dict[str, tuple[str, ...]]:
+    if not requested:
+        return {}
+    if trusted_imports is None:
+        raise PluginSandboxError(
+            "plugin requests external bridge imports, but the host did not approve any; "
+            "a plugin manifest is a request, not an authority grant"
+        )
+    approved_by_host = _normalize_imports(trusted_imports, label="host-approved")
+    approved: dict[str, tuple[str, ...]] = {}
+    for module, names in requested.items():
+        allowed = set(approved_by_host.get(module, ()))
+        denied = [name for name in names if name not in allowed]
+        if denied:
+            joined = ", ".join(f"{module}.{name}" for name in denied)
+            raise PluginSandboxError(f"plugin bridge import was not approved by the host: {joined}")
+        approved[module] = names
+    return approved
+
+
 def _request(source: str, filename: str, payload: dict[str, object], *, imports: dict[str, tuple[str, ...]] | None = None, timeout: float = 10.0) -> object:
     host = Path(__file__).with_name("plugin_host.py")
     bridge_paths=[]
@@ -107,21 +151,26 @@ def _request(source: str, filename: str, payload: dict[str, object], *, imports:
     return response.get("result")
 
 
-def load_plugin(path: Path) -> IsolatedPluginHandle:
+def load_plugin(
+    path: Path,
+    *,
+    trusted_imports: Mapping[str, Iterable[str]] | None = None,
+) -> IsolatedPluginHandle:
     source = path.read_text(encoding="utf-8")
     manifest_path = path.with_suffix(".saga-plugin.json")
-    imports: dict[str, tuple[str, ...]] = {}
+    requested_imports: dict[str, tuple[str, ...]] = {}
     if manifest_path.is_file():
         try:
-            manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
-            raw=manifest.get("imports",{})
-            if not isinstance(raw,dict): raise ValueError("imports must be an object")
-            for module,names in raw.items():
-                if not isinstance(module,str) or not module or not isinstance(names,list) or not all(isinstance(n,str) and n.isidentifier() and not n.startswith("_") for n in names):
-                    raise ValueError("invalid allowlisted import manifest")
-                imports[module]=tuple(names)
-        except (OSError,ValueError,json.JSONDecodeError) as exc:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                raise PluginSandboxError("plugin manifest must be an object")
+            requested_imports = _normalize_imports(
+                manifest.get("imports", {}),
+                label="plugin manifest",
+            )
+        except (OSError, json.JSONDecodeError) as exc:
             raise PluginSandboxError(f"invalid plugin bridge manifest: {exc}") from exc
+    imports = _approve_imports(requested_imports, trusted_imports)
     result = _request(source, str(path), {"op": "describe"}, imports=imports)
     if not isinstance(result, dict) or not isinstance(result.get("exports"), list):
         raise PluginSandboxError("isolated plugin did not return a valid export manifest")
