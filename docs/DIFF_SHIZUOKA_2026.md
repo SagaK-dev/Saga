@@ -91,7 +91,7 @@ That boundary is important. It makes the project more credible than claiming cer
 
 ## How this maps to the 2026 judging criteria
 
-For the middle/high-school problem-solving track, the published rubric totals 26 points: idea/originality and target breadth (4), value created (2), UX/UI (6), specification and programming level (6), appeal/social relevance/future potential (4), and final-presentation quality (5). The contest demo should make as many of those points visible without requiring a judge to inspect the repository first.
+For the middle/high-school problem-solving track, the published rubric totals 27 points: idea/originality, target breadth, and value created (6), UX/UI (6), specification and programming level (6), appeal/social relevance/future potential (4), and final-presentation quality (5). The contest demo should make as many of those points visible without requiring a judge to inspect the repository first.
 
 
 ### Originality — 2 points
