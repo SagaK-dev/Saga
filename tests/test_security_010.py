@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, platform, shutil, subprocess, sys, tempfile, unittest
+import json, os, platform, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 from saga.plugin_runtime import PluginSandboxError, call_plugin, load_plugin
@@ -46,6 +46,28 @@ saga_exports={"read_secret":read_secret,"import_os":import_os}
         self.assertEqual(a.diagnostic_id,'SAGA-T103'); self.assertEqual(b.diagnostic_id,'SAGA-T103')
         c=TypeCheckError('let なので変更できません',1,1,'x.saga')
         self.assertEqual(c.diagnostic_id,'SAGA-T001')
+
+    def test_plugin_manifest_cannot_self_approve_external_bridge_imports(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugin = Path(td) / "bridge.py"
+            plugin.write_text(
+                'def ok(): return 1\nsaga_exports={"ok": ok}\n',
+                encoding="utf-8",
+            )
+            plugin.with_suffix(".saga-plugin.json").write_text(
+                json.dumps({"imports": {"ctypes": ["CDLL"]}}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(PluginSandboxError, "host did not approve"):
+                load_plugin(plugin)
+
+    def test_plugin_bridge_requires_exact_host_approval(self):
+        from saga.plugin_runtime import _approve_imports
+        requested = {"numpy": ("mean", "median")}
+        approved = _approve_imports(requested, {"numpy": ("mean", "median", "sum")})
+        self.assertEqual(approved, requested)
+        with self.assertRaisesRegex(PluginSandboxError, "numpy.median"):
+            _approve_imports(requested, {"numpy": ("mean",)})
 
     def test_plugin_safe_facades_do_not_expose_sys_or_os_modules(self):
         if platform.system().lower() != 'linux' or not shutil.which('unshare'):

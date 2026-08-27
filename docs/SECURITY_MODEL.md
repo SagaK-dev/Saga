@@ -20,7 +20,7 @@ Read, write, database, network endpoint, GUI, process, environment, plugin, and 
 
 ## Python plugin isolation
 
-The secure plugin path never imports plugin code into the Saga process. A plugin is executed in a separate isolated Python interpreter (`-I -S`) and exchanges only serialized values. The plugin AST rejects imports and dunder-based introspection, builtins are allowlisted, and standard-library exposure uses read-only function facades rather than raw module objects.
+The secure plugin path never imports plugin code into the Saga process. A plugin is executed in a separate isolated Python interpreter (`-I -S`) and exchanges only serialized values. The plugin AST rejects imports and dunder-based introspection, builtins are allowlisted, and standard-library exposure uses read-only function facades rather than raw module objects. A `.saga-plugin.json` import manifest is only a request: external module/export pairs are exposed only when the embedding host independently approves the exact pairs. Plugin-authored metadata can never grant itself bridge authority.
 
 On Linux where unprivileged user namespaces are available, strict plugin execution additionally uses separate user, mount, PID, IPC, UTS, and network namespaces, `no_new_privs`, a private mount tree, masked host paths, a minimal environment, OS resource controls, and a parent-death kill signal so a timed-out namespace child is not left behind. If strong isolation is requested but unavailable, Saga fails closed rather than silently downgrading.
 
