@@ -284,6 +284,8 @@ var controlSafeMachine050 = map[string]bool{
 	"machine.actuator_zero": true, "machine.control_guard_begin": true, "machine.control_guard_end": true, "machine.control_guard_ok": true,
 	"machine.budget_begin": true, "machine.budget_end": true,
 	"machine.slew": true, "machine.low_pass": true, "machine.deadband": true, "machine.integrate_clamped": true,
+	"machine.q31_from_ratio": true, "machine.q31_add_sat": true, "machine.q31_sub_sat": true,
+	"machine.q31_mul_sat": true, "machine.q31_mac_sat": true,
 }
 
 func controlLiteralInt050(e Expr) (int64, bool) { return controlAnnotationInt(e) }
