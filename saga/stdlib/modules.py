@@ -51,6 +51,7 @@ from .machine_control import (
     MachineControlError, ModbusRTUMaster, ModbusTCPMaster, MotionProfile, PIDController,
     PWMChannel, SPIDevice, SafetyLatch, Servo, UARTDevice, Watchdog, can_frame_json,
     deadband, integrate_clamped, low_pass, modbus_crc16, servo_duty, slew,
+    q31_add_sat, q31_from_ratio, q31_mac_sat, q31_mul_sat, q31_sub_sat,
 )
 from .vision_control import (
     VisionError, Detection, CentroidTracker, PinholeCamera, OpenCVDNNModel, OpenCVYOLOXDetector, OpenCVDirectObjectDetector,
@@ -2488,6 +2489,32 @@ def machine_deadband(_interpreter, args):
 @native("machine", "integrate_clamped", (DECIMAL, DECIMAL, DECIMAL, DECIMAL, DECIMAL), DECIMAL)
 def machine_integrate_clamped(_interpreter, args):
     try: return integrate_clamped(args[0], args[1], args[2], args[3], args[4])
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+
+@native("machine", "q31_from_ratio", (INT, INT), INT)
+def machine_q31_from_ratio(_interpreter, args):
+    try: return q31_from_ratio(_as_int(args[0]), _as_int(args[1]))
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+@native("machine", "q31_add_sat", (INT, INT), INT)
+def machine_q31_add_sat(_interpreter, args):
+    try: return q31_add_sat(_as_int(args[0]), _as_int(args[1]))
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+@native("machine", "q31_sub_sat", (INT, INT), INT)
+def machine_q31_sub_sat(_interpreter, args):
+    try: return q31_sub_sat(_as_int(args[0]), _as_int(args[1]))
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+@native("machine", "q31_mul_sat", (INT, INT), INT)
+def machine_q31_mul_sat(_interpreter, args):
+    try: return q31_mul_sat(_as_int(args[0]), _as_int(args[1]))
+    except MachineControlError as exc: raise _machine_failure(exc) from exc
+
+@native("machine", "q31_mac_sat", (INT, INT, INT), INT)
+def machine_q31_mac_sat(_interpreter, args):
+    try: return q31_mac_sat(_as_int(args[0]), _as_int(args[1]), _as_int(args[2]))
     except MachineControlError as exc: raise _machine_failure(exc) from exc
 
 @native("machine", "profile", (DECIMAL, DECIMAL, DECIMAL, DECIMAL, DECIMAL), MACHINE_PROFILE)

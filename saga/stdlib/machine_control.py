@@ -1276,6 +1276,61 @@ def integrate_clamped(
     return _clamp(previous + input_value * dt_seconds, low, high)
 
 
+Q31_MIN = -(1 << 31)
+Q31_MAX = (1 << 31) - 1
+Q31_SCALE = 1 << 31
+
+
+def _q31_operand(name: str, value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise MachineControlError(f"{name} must be an int Q1.31 value")
+    if value < Q31_MIN or value > Q31_MAX:
+        raise MachineControlError(f"{name} must be in Q1.31 range")
+    return value
+
+
+def _trunc_div(numerator: int, denominator: int) -> int:
+    quotient = abs(numerator) // abs(denominator)
+    return -quotient if (numerator < 0) != (denominator < 0) else quotient
+
+
+def q31_from_ratio(numerator: int, denominator: int) -> int:
+    numerator = _q31_operand("q31 numerator", numerator)
+    if isinstance(denominator, bool) or not isinstance(denominator, int):
+        raise MachineControlError("q31 denominator must be an int")
+    if denominator <= 0 or denominator > Q31_MAX:
+        raise MachineControlError("q31 denominator must be in 1..2147483647")
+    if numerator >= denominator:
+        return Q31_MAX
+    if numerator <= -denominator:
+        return Q31_MIN
+    return _trunc_div(numerator * Q31_SCALE, denominator)
+
+
+def q31_add_sat(left: int, right: int) -> int:
+    left = _q31_operand("q31 left", left)
+    right = _q31_operand("q31 right", right)
+    return min(Q31_MAX, max(Q31_MIN, left + right))
+
+
+def q31_sub_sat(left: int, right: int) -> int:
+    left = _q31_operand("q31 left", left)
+    right = _q31_operand("q31 right", right)
+    return min(Q31_MAX, max(Q31_MIN, left - right))
+
+
+def q31_mul_sat(left: int, right: int) -> int:
+    left = _q31_operand("q31 left", left)
+    right = _q31_operand("q31 right", right)
+    scaled = _trunc_div(left * right, Q31_SCALE)
+    return min(Q31_MAX, max(Q31_MIN, scaled))
+
+
+def q31_mac_sat(accumulator: int, left: int, right: int) -> int:
+    accumulator = _q31_operand("q31 accumulator", accumulator)
+    return q31_add_sat(accumulator, q31_mul_sat(left, right))
+
+
 def servo_duty(
     degrees: Decimal,
     min_degrees: Decimal,

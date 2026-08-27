@@ -187,5 +187,33 @@ print(plusOne(41))
                 build_native_codegen(main, root / "app", build_dir=root / "build")
 
 
+    def test_q31_control_primitives_lower_to_native_integer_helpers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main = self.write(root, "main.saga", """
+use machine
+
+@control_tick(60000, 8)
+fn currentTick(error: int, gain: int) -> int {
+    return machine.q31_mul_sat(error, gain)
+}
+
+print(currentTick(machine.q31_from_ratio(1, 2), machine.q31_from_ratio(1, 2)))
+print(machine.q31_add_sat(2147483647, 1))
+print(machine.q31_mac_sat(536870912, 1073741824, 1073741824))
+""")
+            result = build_native_codegen(main, root / "app", build_dir=root / "build")
+            self.assertEqual(
+                self.run_binary(result.output),
+                "536870912\n2147483647\n1073741824",
+            )
+            generated = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in result.build_dir.rglob("*.c")
+            )
+            self.assertIn("saga_abi035_machine_q31_mul_sat", generated)
+            self.assertIn("saga_abi035_machine_q31_mac_sat", generated)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2840,6 +2840,10 @@ func (c *Checker) checkMember(v *Member, expected *Type) (Type, error) {
 			return fnT([]Type{TDecimal, TDecimal}, TDecimal), nil
 		case "integrate_clamped":
 			return fnT([]Type{TDecimal, TDecimal, TDecimal, TDecimal, TDecimal}, TDecimal), nil
+		case "q31_from_ratio", "q31_add_sat", "q31_sub_sat", "q31_mul_sat":
+			return fnT([]Type{TInt, TInt}, TInt), nil
+		case "q31_mac_sat":
+			return fnT([]Type{TInt, TInt, TInt}, TInt), nil
 		case "profile":
 			return fnT([]Type{TDecimal, TDecimal, TDecimal, TDecimal, TDecimal}, profile), nil
 		case "profile_step":

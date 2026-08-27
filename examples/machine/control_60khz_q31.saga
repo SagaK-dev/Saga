@@ -1,0 +1,23 @@
+use machine
+
+# Q1.31 fixed-point 60 kHz control example.
+# Q31 values are signed integers:
+#   -2147483648 == -1.0
+#    1073741824 ==  0.5
+#    2147483647 ==  just below +1.0
+#
+# The hot path uses only int values and saturating fixed-point primitives,
+# so Native Codegen can lower it to direct integer C helpers.
+
+@control_tick(60000, 8)
+fn current_tick(error_q31: int, gain_q31: int, accumulator_q31: int) -> int {
+    let proportional_q31 = machine.q31_mul_sat(error_q31, gain_q31)
+    return machine.q31_add_sat(accumulator_q31, proportional_q31)
+}
+
+let half = machine.q31_from_ratio(1, 2)
+let quarter = machine.q31_mul_sat(half, half)
+
+print(half)
+print(quarter)
+print(current_tick(half, half, 0))

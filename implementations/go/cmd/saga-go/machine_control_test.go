@@ -606,3 +606,47 @@ print(machine.integrate_clamped(0.9, 1.0, 0.2, -1.0, 1.0))`
 		t.Fatalf("output=%q", out)
 	}
 }
+
+
+func TestQ31Control054(t *testing.T) {
+	half, err := machineQ31FromRatio(1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if half != 1<<30 {
+		t.Fatalf("half=%d", half)
+	}
+	quarter, err := machineQ31MulSat(half, half)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quarter != 1<<29 {
+		t.Fatalf("quarter=%d", quarter)
+	}
+	if got, err := machineQ31AddSat(machineQ31Max, 1); err != nil || got != machineQ31Max {
+		t.Fatalf("saturating add got=%d err=%v", got, err)
+	}
+	if got, err := machineQ31SubSat(machineQ31Min, 1); err != nil || got != machineQ31Min {
+		t.Fatalf("saturating sub got=%d err=%v", got, err)
+	}
+	if got, err := machineQ31MulSat(machineQ31Min, machineQ31Min); err != nil || got != machineQ31Max {
+		t.Fatalf("saturating mul got=%d err=%v", got, err)
+	}
+
+	src := `use machine
+@control_tick(60000, 8)
+fn tick(error: int, gain: int, accumulator: int) -> int {
+  let proportional = machine.q31_mul_sat(error, gain)
+  return machine.q31_add_sat(accumulator, proportional)
+}
+let half = machine.q31_from_ratio(1, 2)
+print(tick(half, half, 0))
+print(machine.q31_mac_sat(536870912, half, half))`
+	out, err := runSagaForTest(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "536870912\n1073741824" {
+		t.Fatalf("output=%q", out)
+	}
+}

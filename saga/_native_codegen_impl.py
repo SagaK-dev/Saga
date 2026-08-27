@@ -769,6 +769,11 @@ int64_t saga_abi035_mul_i64(int64_t a, int64_t b);
 int64_t saga_abi035_neg_i64(int64_t a);
 int64_t saga_abi035_abs_i64(int64_t a);
 int64_t saga_abi035_mod_i64(int64_t a, int64_t b);
+int64_t saga_abi035_machine_q31_from_ratio(int64_t numerator, int64_t denominator);
+int64_t saga_abi035_machine_q31_add_sat(int64_t left, int64_t right);
+int64_t saga_abi035_machine_q31_sub_sat(int64_t left, int64_t right);
+int64_t saga_abi035_machine_q31_mul_sat(int64_t left, int64_t right);
+int64_t saga_abi035_machine_q31_mac_sat(int64_t accumulator, int64_t left, int64_t right);
 uint8_t saga_abi035_text_equal(SagaText a, SagaText b);
 SagaText saga_abi035_text_owned_copy(SagaText value);
 SagaText saga_abi035_text_concat(SagaText a, SagaText b);
@@ -1143,6 +1148,39 @@ int64_t saga_abi035_mul_i64(int64_t a, int64_t b) { int64_t r; if (__builtin_mul
 int64_t saga_abi035_neg_i64(int64_t a) { if (a==INT64_MIN) saga_abi035_overflow(); return -a; }
 int64_t saga_abi035_abs_i64(int64_t a) { return a < 0 ? saga_abi035_neg_i64(a) : a; }
 int64_t saga_abi035_mod_i64(int64_t a, int64_t b) { if (b==0) saga_abi035_mod_zero(); if (a==INT64_MIN && b==-1) return 0; int64_t r=a%b; if (r!=0 && ((r<0)!=(b<0))) r=saga_abi035_add_i64(r,b); return r; }
+
+static int64_t saga_abi035_q31_require(int64_t value) {
+    if (value < (-INT64_C(2147483647) - INT64_C(1)) || value > INT64_C(2147483647))
+        saga_fatal("SAGA-R196: Q1.31 operand out of range", 96);
+    return value;
+}
+static int64_t saga_abi035_q31_sat(int64_t value) {
+    if (value > INT64_C(2147483647)) return INT64_C(2147483647);
+    if (value < (-INT64_C(2147483647) - INT64_C(1))) return (-INT64_C(2147483647) - INT64_C(1));
+    return value;
+}
+int64_t saga_abi035_machine_q31_from_ratio(int64_t numerator, int64_t denominator) {
+    saga_abi035_q31_require(numerator);
+    if (denominator <= 0 || denominator > INT64_C(2147483647))
+        saga_fatal("SAGA-R196: Q1.31 denominator out of range", 96);
+    if (numerator >= denominator) return INT64_C(2147483647);
+    if (numerator <= -denominator) return (-INT64_C(2147483647) - INT64_C(1));
+    return (numerator * INT64_C(2147483648)) / denominator;
+}
+int64_t saga_abi035_machine_q31_add_sat(int64_t left, int64_t right) {
+    return saga_abi035_q31_sat(saga_abi035_q31_require(left) + saga_abi035_q31_require(right));
+}
+int64_t saga_abi035_machine_q31_sub_sat(int64_t left, int64_t right) {
+    return saga_abi035_q31_sat(saga_abi035_q31_require(left) - saga_abi035_q31_require(right));
+}
+int64_t saga_abi035_machine_q31_mul_sat(int64_t left, int64_t right) {
+    int64_t product = saga_abi035_q31_require(left) * saga_abi035_q31_require(right);
+    return saga_abi035_q31_sat(product / INT64_C(2147483648));
+}
+int64_t saga_abi035_machine_q31_mac_sat(int64_t accumulator, int64_t left, int64_t right) {
+    int64_t product = saga_abi035_machine_q31_mul_sat(left, right);
+    return saga_abi035_machine_q31_add_sat(accumulator, product);
+}
 uint8_t saga_abi035_text_equal(SagaText a, SagaText b) { return (uint8_t)(a.len==b.len && (a.len==0 || memcmp(a.data,b.data,(size_t)a.len)==0)); }
 
 static SagaText saga_text_owned_bytes(const uint8_t *data, uint64_t len) {
@@ -2163,6 +2201,32 @@ class ModuleCEmitter:
             return self._unpack_heap(f"saga_list_get({target}, {index})", item, "index")
 
         if isinstance(expr, ast.Call):
+            if (
+                isinstance(expr.callee, ast.Member)
+                and isinstance(expr.callee.target, ast.Variable)
+                and expr.callee.target.name.lexeme == "machine"
+                and expr.callee.name.lexeme in {
+                    "q31_from_ratio", "q31_add_sat", "q31_sub_sat",
+                    "q31_mul_sat", "q31_mac_sat",
+                }
+            ):
+                name = expr.callee.name.lexeme
+                arity = 3 if name == "q31_mac_sat" else 2
+                if len(expr.arguments) != arity:
+                    raise AOTError(f"machine.{name} expects {arity} integer arguments")
+                rendered: list[str] = []
+                for argument in expr.arguments:
+                    value, kind = self._expr(argument, "int")
+                    if value is None or kind != "int":
+                        raise AOTError(f"machine.{name} requires int arguments in Native Codegen ABI")
+                    temp = self._new_temp("q31_arg", "int")
+                    self._line(f"{temp} = {value};")
+                    rendered.append(temp)
+                out = self._new_temp("q31", "int")
+                helper = f"saga_abi035_machine_{name}"
+                self._line(f"{out} = {helper}({', '.join(rendered)});")
+                return out, "int"
+
             # Tagged Option/Result constructors and observers.
             if isinstance(expr.callee, ast.Variable):
                 name = expr.callee.name.lexeme

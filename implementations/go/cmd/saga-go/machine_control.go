@@ -906,6 +906,97 @@ func machineIntegrateClamped(previous, input, dt, low, high float64) (float64, e
 	return clampFloat(previous+input*dt, low, high), nil
 }
 
+const (
+	machineQ31Min   int64 = -(1 << 31)
+	machineQ31Max   int64 = (1 << 31) - 1
+	machineQ31Scale int64 = 1 << 31
+)
+
+func machineQ31Operand(name string, value int64) (int64, error) {
+	if value < machineQ31Min || value > machineQ31Max {
+		return 0, fmt.Errorf("%s must be in Q1.31 range", name)
+	}
+	return value, nil
+}
+
+func machineQ31FromRatio(numerator, denominator int64) (int64, error) {
+	if _, err := machineQ31Operand("q31 numerator", numerator); err != nil {
+		return 0, err
+	}
+	if denominator <= 0 || denominator > machineQ31Max {
+		return 0, fmt.Errorf("q31 denominator must be in 1..2147483647")
+	}
+	if numerator >= denominator {
+		return machineQ31Max, nil
+	}
+	if numerator <= -denominator {
+		return machineQ31Min, nil
+	}
+	return numerator * machineQ31Scale / denominator, nil
+}
+
+func machineQ31AddSat(left, right int64) (int64, error) {
+	if _, err := machineQ31Operand("q31 left", left); err != nil {
+		return 0, err
+	}
+	if _, err := machineQ31Operand("q31 right", right); err != nil {
+		return 0, err
+	}
+	sum := left + right
+	if sum > machineQ31Max {
+		return machineQ31Max, nil
+	}
+	if sum < machineQ31Min {
+		return machineQ31Min, nil
+	}
+	return sum, nil
+}
+
+func machineQ31SubSat(left, right int64) (int64, error) {
+	if _, err := machineQ31Operand("q31 left", left); err != nil {
+		return 0, err
+	}
+	if _, err := machineQ31Operand("q31 right", right); err != nil {
+		return 0, err
+	}
+	diff := left - right
+	if diff > machineQ31Max {
+		return machineQ31Max, nil
+	}
+	if diff < machineQ31Min {
+		return machineQ31Min, nil
+	}
+	return diff, nil
+}
+
+func machineQ31MulSat(left, right int64) (int64, error) {
+	if _, err := machineQ31Operand("q31 left", left); err != nil {
+		return 0, err
+	}
+	if _, err := machineQ31Operand("q31 right", right); err != nil {
+		return 0, err
+	}
+	scaled := left * right / machineQ31Scale
+	if scaled > machineQ31Max {
+		return machineQ31Max, nil
+	}
+	if scaled < machineQ31Min {
+		return machineQ31Min, nil
+	}
+	return scaled, nil
+}
+
+func machineQ31MacSat(accumulator, left, right int64) (int64, error) {
+	if _, err := machineQ31Operand("q31 accumulator", accumulator); err != nil {
+		return 0, err
+	}
+	product, err := machineQ31MulSat(left, right)
+	if err != nil {
+		return 0, err
+	}
+	return machineQ31AddSat(accumulator, product)
+}
+
 func machineServoDuty(deg, minDeg, maxDeg, minUS, maxUS, periodUS float64) (float64, error) {
 	for _, v := range []float64{deg, minDeg, maxDeg, minUS, maxUS, periodUS} {
 		if !finiteFloat(v) {
@@ -2305,6 +2396,69 @@ func (i *Interpreter) callMachineNative(name string, args []Value, t Token) (Val
 			return fail(e)
 		}
 		return machineNumberFromFloat(q), nil
+	case "q31_from_ratio":
+		if len(args) != 2 {
+			return fail(fmt.Errorf("requires 2 arguments"))
+		}
+		n, e := machineInt(args[0], "numerator")
+		if e != nil {
+			return fail(e)
+		}
+		d, e := machineInt(args[1], "denominator")
+		if e != nil {
+			return fail(e)
+		}
+		q, e := machineQ31FromRatio(int64(n), int64(d))
+		if e != nil {
+			return fail(e)
+		}
+		return numberFromInt64(q), nil
+	case "q31_add_sat", "q31_sub_sat", "q31_mul_sat":
+		if len(args) != 2 {
+			return fail(fmt.Errorf("requires 2 arguments"))
+		}
+		left, e := machineInt(args[0], "left")
+		if e != nil {
+			return fail(e)
+		}
+		right, e := machineInt(args[1], "right")
+		if e != nil {
+			return fail(e)
+		}
+		var q int64
+		switch name {
+		case "q31_add_sat":
+			q, e = machineQ31AddSat(int64(left), int64(right))
+		case "q31_sub_sat":
+			q, e = machineQ31SubSat(int64(left), int64(right))
+		default:
+			q, e = machineQ31MulSat(int64(left), int64(right))
+		}
+		if e != nil {
+			return fail(e)
+		}
+		return numberFromInt64(q), nil
+	case "q31_mac_sat":
+		if len(args) != 3 {
+			return fail(fmt.Errorf("requires 3 arguments"))
+		}
+		acc, e := machineInt(args[0], "accumulator")
+		if e != nil {
+			return fail(e)
+		}
+		left, e := machineInt(args[1], "left")
+		if e != nil {
+			return fail(e)
+		}
+		right, e := machineInt(args[2], "right")
+		if e != nil {
+			return fail(e)
+		}
+		q, e := machineQ31MacSat(int64(acc), int64(left), int64(right))
+		if e != nil {
+			return fail(e)
+		}
+		return numberFromInt64(q), nil
 	case "profile":
 		if len(args) != 5 {
 			return fail(fmt.Errorf("requires 5 arguments"))
