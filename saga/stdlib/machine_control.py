@@ -1249,6 +1249,33 @@ def low_pass(previous: Decimal, sample: Decimal, alpha: Decimal) -> Decimal:
     return previous + alpha * (sample - previous)
 
 
+def deadband(value: Decimal, width: Decimal) -> Decimal:
+    value = _finite("value", value)
+    width = _finite("width", width)
+    if width < 0:
+        raise MachineControlError("deadband width must be >= 0")
+    if abs(value) <= width:
+        return Decimal(0)
+    return value - (width if value > 0 else -width)
+
+
+def integrate_clamped(
+    previous: Decimal,
+    input_value: Decimal,
+    dt_seconds: Decimal,
+    low: Decimal,
+    high: Decimal,
+) -> Decimal:
+    previous = _finite("previous", previous)
+    input_value = _finite("input_value", input_value)
+    dt_seconds = _positive("dt_seconds", dt_seconds)
+    low = _finite("low", low)
+    high = _finite("high", high)
+    if low > high:
+        raise MachineControlError("integrator low must not exceed high")
+    return _clamp(previous + input_value * dt_seconds, low, high)
+
+
 def servo_duty(
     degrees: Decimal,
     min_degrees: Decimal,
