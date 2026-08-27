@@ -2836,6 +2836,10 @@ func (c *Checker) checkMember(v *Member, expected *Type) (Type, error) {
 			return fnT([]Type{TDecimal, TDecimal, TDecimal, TDecimal}, TDecimal), nil
 		case "low_pass":
 			return fnT([]Type{TDecimal, TDecimal, TDecimal}, TDecimal), nil
+		case "deadband":
+			return fnT([]Type{TDecimal, TDecimal}, TDecimal), nil
+		case "integrate_clamped":
+			return fnT([]Type{TDecimal, TDecimal, TDecimal, TDecimal, TDecimal}, TDecimal), nil
 		case "profile":
 			return fnT([]Type{TDecimal, TDecimal, TDecimal, TDecimal, TDecimal}, profile), nil
 		case "profile_step":
