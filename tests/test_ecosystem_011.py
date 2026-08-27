@@ -144,7 +144,7 @@ class SagaEcosystem011Tests(unittest.TestCase):
             td=Path(td); plugin=td/'plugin.py'
             plugin.write_text('def average(xs):\n    return numpy.mean(xs)\nsaga_exports={"average":average}\n')
             plugin.with_suffix('.saga-plugin.json').write_text('{"imports":{"numpy":["mean"]}}\n')
-            handle=load_plugin(plugin)
+            handle=load_plugin(plugin, trusted_imports={"numpy": ("mean",)})
             self.assertEqual(str(call_plugin(handle,'average',[(1,2,3,4)])),'2.5')
 
     def test_mobile_generators_have_native_runtime_sources(self):
