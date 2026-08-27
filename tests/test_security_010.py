@@ -1,5 +1,5 @@
 from __future__ import annotations
-import platform, shutil, subprocess, sys, tempfile, unittest
+import os, platform, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 from saga.plugin_runtime import PluginSandboxError, call_plugin, load_plugin
@@ -103,6 +103,46 @@ saga_exports={"escape":escape}
         from saga.sandbox import command_for_python
         with mock.patch('saga.sandbox.platform.system',return_value='Windows'):
             with self.assertRaises(RuntimeError): command_for_python(Path('worker.py'),strict=True)
+
+    def test_strict_cli_sandbox_uses_mount_namespace_and_hardening_preexec(self):
+        from unittest import mock
+        from saga import sandbox
+        completed = subprocess.CompletedProcess([], 0)
+        with (
+            mock.patch('saga.sandbox.platform.system', return_value='Linux'),
+            mock.patch('saga.sandbox.shutil.which', return_value='/usr/bin/unshare'),
+            mock.patch.dict(os.environ, {'SAGA_OS_SANDBOX_ACTIVE': '0'}),
+            mock.patch('saga.sandbox.subprocess.run', return_value=completed) as run,
+        ):
+            self.assertEqual(sandbox.run_cli_in_strict_sandbox(['run', 'main.saga']), 0)
+        cmd = run.call_args.args[0]
+        self.assertIn('--mount', cmd)
+        self.assertIs(run.call_args.kwargs['preexec_fn'], sandbox._strict_cli_preexec)
+        self.assertTrue(run.call_args.kwargs['close_fds'])
+
+    def test_strict_cli_preexec_requires_no_new_privs(self):
+        from unittest import mock
+        from saga import sandbox
+        with (
+            mock.patch('saga.sandbox._set_no_new_privs') as no_new_privs,
+            mock.patch('saga.sandbox._resource_limits') as resource_limits,
+        ):
+            sandbox._strict_cli_preexec()
+        no_new_privs.assert_called_once_with()
+        resource_limits.assert_called_once_with()
+
+    def test_no_new_privs_failure_is_not_silently_ignored(self):
+        from unittest import mock
+        from saga import sandbox
+        libc = mock.Mock()
+        libc.prctl.return_value = -1
+        with (
+            mock.patch('saga.sandbox.platform.system', return_value='Linux'),
+            mock.patch('saga.sandbox.ctypes.CDLL', return_value=libc),
+            mock.patch('saga.sandbox.ctypes.get_errno', return_value=1),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'PR_SET_NO_NEW_PRIVS'):
+                sandbox._set_no_new_privs()
 
     def test_regex_hosted_module(self):
         out=[]
