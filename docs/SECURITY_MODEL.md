@@ -28,9 +28,9 @@ On Linux where unprivileged user namespaces are available, strict plugin executi
 
 ## Untrusted-source resource policy
 
-Saga itself keeps the `no-fixed-normative-ceilings` resource model. Hosted services can separately pass a `ResourceBudget` to the Python API to bound source bytes, tokens, AST nodes, source-import depth, source-unit count, and interpreter steps without changing language conformance. `UNTRUSTED_RESOURCE_BUDGET` is a conservative reference preset for playgrounds, bots, and similar services; operators should tune or replace it for their workload.
+Saga itself keeps the `no-fixed-normative-ceilings` resource model. Hosted services can separately pass a `ResourceBudget` to the Python API to bound source bytes, tokens, AST nodes, source-import depth, source-unit count, and interpreter steps without changing language conformance. `UNTRUSTED_RESOURCE_BUDGET` is a conservative reference preset for playgrounds, bots, and similar services; operators should tune or replace it for their workload. The CLI exposes the same preset as `--resource-profile untrusted` on `run`, `check`, and `test`; the default profile remains unchanged.
 
-If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the stricter value so an execution request cannot relax the host policy. Omitting `resource_budget` preserves the previous unlimited-by-policy behavior. These application-level budgets complement rather than replace OS/process memory, CPU, filesystem, and network isolation.
+If both `step_limit` and `ResourceBudget.max_steps` are supplied, Saga uses the stricter value so an execution request cannot relax the host policy. Omitting `resource_budget` or using the CLI's `default` resource profile preserves the previous unlimited-by-policy behavior. The `untrusted` resource profile does not grant capabilities and does not imply OS isolation; combine it with an appropriate capability policy and, on supported Linux hosts, `--os-sandbox strict` when a whole-program OS boundary is required. These application-level budgets complement rather than replace OS/process memory, CPU, filesystem, and network isolation.
 
 ## Whole-program OS sandbox
 

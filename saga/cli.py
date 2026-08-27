@@ -25,16 +25,28 @@ from .stdlib import MODULES
 from .standards import PROPOSER_TYPES, StandardsError, StandardsRegistry
 from .package import PackageError, build_lock, pack_project, verify_lock
 from .exitcodes import CONFORMANCE_FAILURE, INPUT_ERROR, INTERNAL_ERROR, for_error
-from .limits import RESOURCE_MODEL
+from .limits import RESOURCE_MODEL, ResourceBudget, UNTRUSTED_RESOURCE_BUDGET
 
 VERSION = __version__
 
 
 
-def _diagnostic_source(error: SourceError, fallback: str = "") -> str:
+def _diagnostic_source(
+    error: SourceError,
+    fallback: str = "",
+    resource_budget: ResourceBudget | None = None,
+) -> str:
     if error.filename not in {"<input>", "<repl>", "<session>"}:
         try:
-            return pathlib.Path(error.filename).read_text(encoding="utf-8-sig")
+            path = pathlib.Path(error.filename)
+            limit = resource_budget.max_source_bytes if resource_budget is not None else None
+            if limit is None:
+                return path.read_text(encoding="utf-8-sig")
+            with path.open("rb") as handle:
+                raw = handle.read(limit + 1)
+            if len(raw) > limit:
+                return fallback
+            return raw.decode("utf-8-sig")
         except (OSError, UnicodeError):
             pass
     return fallback
@@ -72,7 +84,13 @@ def _diagnostic_payload(error: SourceError, source: str = "", language: str = "a
     }
 
 
-def _render_error(error: SourceError, source: str = "", mode: str = "text", language: str = "auto") -> str:
+def _render_error(
+    error: SourceError,
+    source: str = "",
+    mode: str = "text",
+    language: str = "auto",
+    resource_budget: ResourceBudget | None = None,
+) -> str:
     language = normalize_language(language)
     if mode == "json":
         return json.dumps(_diagnostic_payload(error, source, language), ensure_ascii=False, sort_keys=True)
@@ -100,10 +118,33 @@ def _render_error(error: SourceError, source: str = "", mode: str = "text", lang
             }],
         }
         return json.dumps(result, ensure_ascii=False, sort_keys=True)
-    return format_diagnostic(error, _diagnostic_source(error, source), language=language)
+    return format_diagnostic(
+        error,
+        _diagnostic_source(error, source, resource_budget),
+        language=language,
+    )
 
 def _read(path: str | pathlib.Path) -> str:
     return read_source_file(path)
+
+
+def _resource_budget(args) -> ResourceBudget | None:
+    profile = getattr(args, "resource_profile", "default")
+    if profile == "untrusted":
+        return UNTRUSTED_RESOURCE_BUDGET
+    return None
+
+
+def _resource_profile_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--resource-profile",
+        choices=["default", "untrusted"],
+        default="default",
+        help=(
+            "実行環境の資源ポリシー。untrustedは公開サービス向けの"
+            "UNTRUSTED_RESOURCE_BUDGETを適用（OS隔離や権限付与とは別）"
+        ),
+    )
 
 
 def _source_path(value: str) -> pathlib.Path:
@@ -285,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--diagnostic-format", choices=["text", "json", "sarif"], default="text")
     run_p.add_argument("--os-sandbox", choices=["off", "strict"], default="off", help="OSレベル隔離。strictはLinux namespaceでネットワーク/PID/IPC/UTSを分離")
     run_p.add_argument("--language", default=argparse.SUPPRESS, metavar="LANG", help="診断表示言語（BCP 47。未対応言語は英語） / diagnostic locale")
+    _resource_profile_arg(run_p)
     _permission_args(run_p)
 
     check_p = sub.add_parser("check", help="実行せずに構文・型を検査")
@@ -292,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     check_p.add_argument("--standard", action="store_true", help="標準プロファイルのlintも実行")
     check_p.add_argument("--diagnostic-format", choices=["text", "json", "sarif"], default="text")
     check_p.add_argument("--language", default=argparse.SUPPRESS, metavar="LANG", help="診断表示言語（BCP 47。未対応言語は英語） / diagnostic locale")
+    _resource_profile_arg(check_p)
 
     repl_p = sub.add_parser("repl", help="1行ずつ試す簡易REPL")
     repl_p.add_argument("--precision", type=int, default=50)
@@ -341,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     test_p.add_argument("--precision", type=int, default=50)
     test_p.add_argument("--step-limit", type=int, default=None, help="任意の実行ステップ予算")
     test_p.add_argument("--language", default=argparse.SUPPRESS, metavar="LANG", help="診断表示言語（BCP 47。未対応言語は英語） / diagnostic locale")
+    _resource_profile_arg(test_p)
     _permission_args(test_p)
 
     lock_p = sub.add_parser("lock", help="再現可能なプロジェクトlockを生成")
@@ -434,6 +478,7 @@ def main(argv: list[str] | None = None) -> int:
     doctor_p.add_argument("--json", action="store_true", help="診断結果をJSONで出力")
 
     args = parser.parse_args(argv)
+    resource_budget = _resource_budget(args)
     if args.command in {"run", "repl", "test", "debug", "profile"} and args.precision < 1:
         parser.error("--precision は1以上にしてください")
     if args.command in {"run", "test", "debug", "profile"} and args.step_limit is not None and args.step_limit < 1: parser.error("--step-limit は1以上にしてください")
@@ -556,10 +601,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "standards":
             return _run_standards(args)
         if args.command == "run":
-            path = _source_path(args.file); filename = str(path); source = _read(path)
-            run_file(str(path), precision=args.precision, step_limit=args.step_limit, capabilities=_capabilities(args))
+            path = _source_path(args.file); filename = str(path)
+            run_file(
+                str(path),
+                precision=args.precision,
+                step_limit=args.step_limit,
+                capabilities=_capabilities(args),
+                resource_budget=resource_budget,
+            )
         elif args.command == "check":
-            path = _source_path(args.file); filename = str(path); source = _read(path); loaded = compile_file(str(path)); program = loaded.program
+            path = _source_path(args.file); filename = str(path)
+            loaded = compile_file(str(path), resource_budget=resource_budget); program = loaded.program
             if args.standard:
                 diagnostics = lint_program(program, standard=True)
                 for item in diagnostics: print(item.render(filename), file=sys.stderr)
@@ -666,12 +718,22 @@ def main(argv: list[str] | None = None) -> int:
                 raise OSError(f"Sagaテストがありません: {target}")
             failures = 0
             for path in files:
-                file_source = _read(path); captured: list[str] = []
+                captured: list[str] = []
                 try:
-                    run_file(str(path), output=captured.append, precision=args.precision, step_limit=args.step_limit, capabilities=_capabilities(args))
+                    run_file(
+                        str(path),
+                        output=captured.append,
+                        precision=args.precision,
+                        step_limit=args.step_limit,
+                        capabilities=_capabilities(args),
+                        resource_budget=resource_budget,
+                    )
                     print(f"PASS {path}")
                 except SourceError as exc:
-                    failures += 1; print(f"FAIL {path}", file=sys.stderr); print(format_diagnostic(exc, file_source, language=normalize_language(args.language)), file=sys.stderr)
+                    failures += 1
+                    print(f"FAIL {path}", file=sys.stderr)
+                    file_source = _diagnostic_source(exc, "", resource_budget)
+                    print(format_diagnostic(exc, file_source, language=normalize_language(args.language)), file=sys.stderr)
             print(f"{len(files) - failures} passed, {failures} failed")
             return 1 if failures else 0
         elif args.command == "lock":
@@ -766,7 +828,17 @@ def main(argv: list[str] | None = None) -> int:
     except (StandardsError, PackageError) as exc:
         print(f"エラー: {exc}", file=sys.stderr); return INPUT_ERROR
     except SourceError as exc:
-        print(_render_error(exc, source, getattr(args, "diagnostic_format", "text"), getattr(args, "language", "auto")), file=sys.stderr); return for_error(exc)
+        print(
+            _render_error(
+                exc,
+                source,
+                getattr(args, "diagnostic_format", "text"),
+                getattr(args, "language", "auto"),
+                resource_budget,
+            ),
+            file=sys.stderr,
+        )
+        return for_error(exc)
     except FileExistsError:
         print(f"エラー: '{args.name}' はすでに存在します", file=sys.stderr); return INPUT_ERROR
     except (OSError, UnicodeError, ValueError) as exc:
@@ -775,7 +847,16 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "debug", False):
             raise
         internal = InternalLanguageError("処理系内部で予期しない障害が発生しました", 1, 1, filename, "--debugで開発者向け詳細を確認できます")
-        print(_render_error(internal, source, getattr(args, "diagnostic_format", "text"), getattr(args, "language", "auto")), file=sys.stderr)
+        print(
+            _render_error(
+                internal,
+                source,
+                getattr(args, "diagnostic_format", "text"),
+                getattr(args, "language", "auto"),
+                resource_budget,
+            ),
+            file=sys.stderr,
+        )
         return INTERNAL_ERROR
     return 0
 
