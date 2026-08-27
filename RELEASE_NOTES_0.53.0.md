@@ -13,6 +13,7 @@ Saga 0.53.0 is a development milestone that makes machine control, robotics, and
 - Hardens isolated Python plugin bridges so a plugin manifest can request external module exports but cannot authorize them; the embedding host must independently approve the exact module/export pairs.
 - Makes incremental `SagaSession` execution fully transactional for language-visible enum registrations and decimal precision, so a runtime-failed REPL/notebook submission cannot leak those changes into later submissions.
 - Aligns `SagaSession` with the file/source APIs by translating host recursion exhaustion during parsing, type checking, or execution into stable Saga limit/resource diagnostics instead of leaking raw Python `RecursionError` exceptions.
+- Makes namespaced-module interfaces safe by default: normal `compile_file`/`run_file` paths re-check source instead of treating a fresh-looking `.smi.json` as proof of compiler validation. Trusted build pipelines can opt in explicitly with `trust_module_interfaces=True`.
 - Adds a reproducible contest-facing safe/unsafe demo whose comparison is mechanically verified as exactly one added control-path line, with fail-closed checks for the expected runtime output, timing contract, analysis scope, and exact `SAGA-C492` diagnostic, plus clean wheel and source-distribution installation smoke tests.
 - Adds control-oriented examples and dedicated design/contest documents describing what is software evidence versus target-specific physical evidence.
 

@@ -137,7 +137,9 @@ def build_module_interface(
 
     The `.smi.json` file contains no executable implementation body. It is the
     separate-compilation boundary used for ABI comparison, dependency invalidation,
-    IDE indexing and cross-implementation conformance.
+    IDE indexing and cross-implementation conformance. Its hashes prove freshness
+    and internal consistency, not provenance; normal execution does not trust an
+    interface as a substitute for source validation unless explicitly requested.
     """
     raw_source = Path(source_path).expanduser()
     if raw_source.is_symlink() or _lexical_symlink_component(raw_source) is not None:

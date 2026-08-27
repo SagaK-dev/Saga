@@ -101,9 +101,20 @@ def compile_file(
     *,
     root: str | None = None,
     resource_budget: ResourceBudget | None = None,
+    trust_module_interfaces: bool = False,
 ) -> LoadedProgram:
-    """Compile an entry file and all ``use \"...saga\"`` source units."""
-    return load_program(path, root=root, resource_budget=resource_budget)
+    """Compile an entry file and all ``use \"...saga\"`` source units.
+
+    Module interfaces are not trusted by default because their hashes establish
+    freshness, not provenance. Set ``trust_module_interfaces=True`` only for
+    artifacts produced and controlled by a trusted compilation pipeline.
+    """
+    return load_program(
+        path,
+        root=root,
+        resource_budget=resource_budget,
+        trust_module_interfaces=trust_module_interfaces,
+    )
 
 
 def run_file(
@@ -115,8 +126,14 @@ def run_file(
     step_limit: int | None = None,
     capabilities: Capabilities | None = None,
     resource_budget: ResourceBudget | None = None,
+    trust_module_interfaces: bool = False,
 ) -> None:
-    loaded = compile_file(path, root=root, resource_budget=resource_budget)
+    loaded = compile_file(
+        path,
+        root=root,
+        resource_budget=resource_budget,
+        trust_module_interfaces=trust_module_interfaces,
+    )
     interpreter = Interpreter(
         str(loaded.entry),
         output=bounded_output(output, str(loaded.entry), resource_budget),

@@ -121,6 +121,7 @@ def load_program(
     *,
     root: str | Path | None = None,
     resource_budget: ResourceBudget | None = None,
+    trust_module_interfaces: bool = False,
 ) -> LoadedProgram:
     """Load one Saga program while preserving namespaced module boundaries.
 
@@ -130,6 +131,11 @@ def load_program(
 
     ``resource_budget`` is optional deployment policy. Omitting it preserves the
     language's no-fixed-ceiling resource model.
+
+    ``trust_module_interfaces`` is deliberately opt-in. A fresh `.smi.json`
+    proves cache freshness and ABI self-consistency, not compiler provenance.
+    Normal compile/run paths therefore re-check module source. Trusted build
+    systems may opt in to interface-backed separate compilation explicitly.
     """
     entry_input = Path(entry).expanduser()
     lexical_entry = entry_input.absolute()
@@ -246,7 +252,7 @@ def load_program(
             body = [*dependency_statements, *local_statements]
             interface = None
             interface_path = resolved.with_suffix(".smi.json")
-            if interface_path.is_file():
+            if trust_module_interfaces and interface_path.is_file():
                 try:
                     from .module_interface import load_module_interface
                     interface = load_module_interface(interface_path, source=resolved)
