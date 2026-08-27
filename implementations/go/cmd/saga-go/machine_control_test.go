@@ -587,8 +587,8 @@ fn tick(previous: decimal, sample: decimal) -> decimal {
 
 	bad := `@control_tick(60000, 16.7)
 fn tick(value: decimal) -> decimal { return value }`
-	if _, err := runSagaForTest(t, bad); err == nil || !strings.Contains(err.Error(), "SAGA-C483") {
-		t.Fatalf("expected SAGA-C483 for 60 kHz overbudget contract, got %v", err)
+	if _, err := runSagaForTest(t, bad); err == nil || !strings.Contains(err.Error(), "exceeds the declared period") {
+		t.Fatalf("expected 60 kHz overbudget rejection, got %v", err)
 	}
 }
 
