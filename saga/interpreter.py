@@ -568,6 +568,8 @@ class Interpreter:
         }
         functions_snapshot = dict(self.functions)
         classes_snapshot = dict(self.classes)
+        enums_snapshot = dict(self.enums)
+        context_snapshot = self.context.copy()
         resource_count = len(self._resources)
         try:
             self.program.statements.extend(program.statements)
@@ -580,6 +582,8 @@ class Interpreter:
             self.globals.values = globals_snapshot
             self.functions = functions_snapshot
             self.classes = classes_snapshot
+            self.enums = enums_snapshot
+            self.context = context_snapshot
             self.environment = self.globals
             # Resources opened by a failed submission are not part of the
             # committed session state.  Close only those new resources; host
