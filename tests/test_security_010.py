@@ -120,6 +120,52 @@ saga_exports={"escape":escape}
         self.assertIs(run.call_args.kwargs['preexec_fn'], sandbox._strict_cli_preexec)
         self.assertTrue(run.call_args.kwargs['close_fds'])
 
+    def test_untrusted_process_budget_applies_cpu_and_address_space_limits(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from saga import ProcessBudget
+        from saga import sandbox
+        fake_resource = SimpleNamespace(
+            RLIMIT_CORE=1, RLIMIT_NOFILE=2, RLIMIT_CPU=3, RLIMIT_AS=4,
+            setrlimit=mock.Mock(),
+        )
+        with mock.patch("saga.sandbox._resource", fake_resource):
+            sandbox._resource_limits(ProcessBudget(
+                max_cpu_seconds=7,
+                max_address_space_bytes=256 * 1024 * 1024,
+            ))
+        fake_resource.setrlimit.assert_any_call(3, (7, 7))
+        fake_resource.setrlimit.assert_any_call(4, (256 * 1024 * 1024, 256 * 1024 * 1024))
+
+    def test_untrusted_process_budget_fails_closed_when_required_limit_is_missing(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from saga import ProcessBudget
+        from saga import sandbox
+        fake_resource = SimpleNamespace(
+            RLIMIT_CORE=1, RLIMIT_NOFILE=2, RLIMIT_CPU=3,
+            setrlimit=mock.Mock(),
+        )
+        with mock.patch("saga.sandbox._resource", fake_resource):
+            with self.assertRaisesRegex(RuntimeError, "RLIMIT_AS"):
+                sandbox._resource_limits(ProcessBudget(
+                    max_cpu_seconds=7,
+                    max_address_space_bytes=128 * 1024 * 1024,
+                ))
+
+    def test_strict_untrusted_profile_runs_inside_process_budget(self):
+        if platform.system().lower() != "linux" or not shutil.which("unshare"):
+            self.skipTest("strict namespace sandbox requires Linux unshare")
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "simple.saga"
+            src.write_text('print("budget-ok")\n', encoding="utf-8")
+            cp = subprocess.run([
+                sys.executable, str(ROOT / "saga.py"), "run", str(src),
+                "--resource-profile", "untrusted", "--os-sandbox", "strict",
+            ], cwd=ROOT, text=True, capture_output=True)
+            self.assertEqual(cp.returncode, 0, cp.stderr)
+            self.assertIn("budget-ok", cp.stdout)
+
     def test_strict_cli_preexec_requires_no_new_privs(self):
         from unittest import mock
         from saga import sandbox

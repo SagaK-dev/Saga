@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from saga import ResourceBudget
+from saga import ResourceBudget, UNTRUSTED_PROCESS_BUDGET
 from saga import cli
 from saga.errors import LexLimitError
 
@@ -83,6 +83,15 @@ class CLIResourceProfile053Tests(unittest.TestCase):
                     ResourceBudget(max_source_bytes=16),
                 )
             self.assertEqual(text, "fallback")
+
+    def test_strict_untrusted_run_passes_process_budget_to_child_boundary(self):
+        with mock.patch("saga.sandbox.run_cli_in_strict_sandbox", return_value=0) as run:
+            code = cli.main([
+                "run", "main.saga", "--resource-profile", "untrusted",
+                "--os-sandbox", "strict",
+            ])
+        self.assertEqual(code, 0)
+        self.assertEqual(run.call_args.kwargs["process_budget"], UNTRUSTED_PROCESS_BUDGET)
 
     def test_resource_profile_is_exposed_on_execution_commands(self):
         for command in ("run", "check", "test"):

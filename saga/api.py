@@ -10,6 +10,7 @@ from .interpreter import Interpreter
 from .lexer import Lexer
 from .limits import (
     ResourceBudget,
+    bounded_output,
     check_source_bytes,
     check_token_count,
     effective_step_limit,
@@ -78,7 +79,7 @@ def run_source(
     program = compile_source(source, filename, resource_budget=resource_budget)
     interpreter = Interpreter(
         filename,
-        output=output,
+        output=bounded_output(output, filename, resource_budget),
         precision=precision,
         step_limit=effective_step_limit(step_limit, resource_budget),
         capabilities=capabilities,
@@ -118,7 +119,9 @@ def run_file(
 ) -> None:
     loaded = compile_file(path, root=root, resource_budget=resource_budget)
     interpreter = Interpreter(
-        str(loaded.entry), output=output, precision=precision,
+        str(loaded.entry),
+        output=bounded_output(output, str(loaded.entry), resource_budget),
+        precision=precision,
         step_limit=effective_step_limit(step_limit, resource_budget), capabilities=capabilities,
     )
     try:
@@ -150,7 +153,9 @@ class SagaSession:
         self.resource_budget = resource_budget
         self.checker = TypeChecker(filename)
         self.interpreter = Interpreter(
-            filename, output=output, precision=precision,
+            filename,
+            output=bounded_output(output, filename, resource_budget),
+            precision=precision,
             step_limit=effective_step_limit(step_limit, resource_budget),
             capabilities=capabilities,
         )

@@ -999,7 +999,7 @@ class Interpreter:
             if not isinstance(value, Future):
                 self._runtime_error(expr.keyword, "await には future[T] が必要です", diagnostic_id="SAGA-R184")
             try: return value.result()
-            except (SagaThrown, RuntimeLanguageError, NativeFailure): raise
+            except (SagaThrown, RuntimeLanguageError, RuntimeResourceError, NativeFailure): raise
             except Exception as exc: raise NativeFailure(f"非同期処理が失敗しました: {exc}") from exc
         if isinstance(expr, ast.MoveExpr):
             if not isinstance(expr.value, ast.Variable):
@@ -1157,7 +1157,7 @@ class Interpreter:
         callee = self._evaluate(expr.callee); args = [self._evaluate(arg) for arg in expr.arguments]
         try: return self.invoke_callable(callee, args)
         except NativeFailure as exc: self._runtime_error(expr.paren, str(exc), diagnostic_id=getattr(exc, "diagnostic_id", None))
-        except (SagaThrown, RuntimeLanguageError): raise
+        except (SagaThrown, RuntimeLanguageError, RuntimeResourceError): raise
         except Exception as exc: self._runtime_error(expr.paren, f"呼び出し中にエラーが発生しました: {exc}")
 
     def invoke_callable(self, callee: object, args: list[object]) -> object:

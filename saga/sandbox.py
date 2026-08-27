@@ -10,6 +10,7 @@ the reduced isolation level explicitly rather than pretending equivalence.
 """
 
 from dataclasses import dataclass
+from functools import partial
 import ctypes
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ except ImportError:  # Windows
 import shutil
 import subprocess
 from typing import Sequence
+
+from .limits import ProcessBudget
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +65,7 @@ def _set_no_new_privs() -> None:
         raise RuntimeError(f"PR_SET_NO_NEW_PRIVS failed: errno {err}")
 
 
-def _resource_limits() -> None:
+def _resource_limits(process_budget: ProcessBudget | None = None) -> None:
     """Apply limits that are safe before entering a Linux user namespace.
 
     Do not set ``RLIMIT_NPROC`` here.  Strict Linux launches execute ``unshare
@@ -84,11 +87,33 @@ def _resource_limits() -> None:
         except (ValueError, OSError):
             pass
 
+    if process_budget is None:
+        return
 
-def _strict_cli_preexec() -> None:
+    for resource_name, value in (
+        ("RLIMIT_CPU", process_budget.max_cpu_seconds),
+        ("RLIMIT_AS", process_budget.max_address_space_bytes),
+    ):
+        if value is None:
+            continue
+        resource_kind = getattr(_resource, resource_name, None)
+        if resource_kind is None:
+            raise RuntimeError(f"strict process budget requires {resource_name}")
+        try:
+            _resource.setrlimit(resource_kind, (value, value))
+        except (ValueError, OSError) as exc:
+            raise RuntimeError(
+                f"strict process budget could not apply {resource_name}={value}"
+            ) from exc
+
+
+def _strict_cli_preexec(process_budget: ProcessBudget | None = None) -> None:
     """Install mandatory pre-exec hardening for whole-program strict mode."""
     _set_no_new_privs()
-    _resource_limits()
+    if process_budget is None:
+        _resource_limits()
+    else:
+        _resource_limits(process_budget)
 
 
 def _minimal_env() -> dict[str, str]:
@@ -149,7 +174,11 @@ def run_python_host(
         raise RuntimeError(f"OS sandbox could not start: {exc}") from exc
 
 
-def run_cli_in_strict_sandbox(argv: Sequence[str]) -> int:
+def run_cli_in_strict_sandbox(
+    argv: Sequence[str],
+    *,
+    process_budget: ProcessBudget | None = None,
+) -> int:
     """Re-exec the Saga CLI in an OS isolation boundary.
 
     Linux: new user, mount, PID, IPC, UTS and network namespaces plus
@@ -170,12 +199,17 @@ def run_cli_in_strict_sandbox(argv: Sequence[str]) -> int:
         "--user", "--map-root-user", "--mount", "--pid", "--fork", "--ipc", "--uts", "--net", "--",
         sys.executable, "-m", "saga.cli", *argv,
     ]
+    preexec = (
+        _strict_cli_preexec
+        if process_budget is None
+        else partial(_strict_cli_preexec, process_budget)
+    )
     completed = subprocess.run(
         cmd,
         env=env,
         shell=False,
         check=False,
         close_fds=True,
-        preexec_fn=_strict_cli_preexec,
+        preexec_fn=preexec,
     )
     return completed.returncode
