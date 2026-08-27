@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--precision", type=int, default=50, help="Decimalの計算桁数（既定: 50）")
     run_p.add_argument("--step-limit", type=int, default=None, help="任意の実行ステップ予算（未指定なら固定上限なし）")
     run_p.add_argument("--diagnostic-format", choices=["text", "json", "sarif"], default="text")
-    run_p.add_argument("--os-sandbox", choices=["off", "strict"], default="off", help="OSレベル隔離。strictはLinux namespaceでネットワーク/PID/IPC/UTSを分離")
+    run_p.add_argument("--os-sandbox", choices=["off", "strict"], default="off", help="OSレベル隔離。strictはLinux user/mount/network/PID/IPC/UTS namespaceを分離")
     run_p.add_argument("--language", default=argparse.SUPPRESS, metavar="LANG", help="診断表示言語（BCP 47。未対応言語は英語） / diagnostic locale")
     _resource_profile_arg(run_p)
     _permission_args(run_p)

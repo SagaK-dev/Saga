@@ -57,6 +57,20 @@ class CLIResourceProfile053Tests(unittest.TestCase):
             self.assertNotEqual(code, 0)
             self.assertIn("ソースサイズ", stderr.getvalue())
 
+    def test_test_command_applies_untrusted_profile_to_each_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "case.saga"
+            source.write_text('print("0123456789")\n', encoding="utf-8")
+            tiny = ResourceBudget(max_source_bytes=4)
+            stderr = io.StringIO()
+            with (
+                mock.patch("saga.cli.UNTRUSTED_RESOURCE_BUDGET", tiny),
+                contextlib.redirect_stderr(stderr),
+            ):
+                code = cli.main(["test", td, "--resource-profile", "untrusted"])
+            self.assertNotEqual(code, 0)
+            self.assertIn("ソースサイズ", stderr.getvalue())
+
     def test_bounded_diagnostics_do_not_read_oversized_file_whole(self):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "large.saga"
