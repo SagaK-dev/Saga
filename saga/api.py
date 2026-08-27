@@ -88,7 +88,6 @@ def run_source(
         try:
             interpreter.interpret(program)
         except RecursionError as exc:
-            from .errors import RuntimeResourceError
             raise RuntimeResourceError(
                 "ホストの実行スタックを使い切りました", 1, 1, filename,
                 "Saga規格の固定再帰上限ではありません。ホスト資源またはアルゴリズムを確認してください",
@@ -128,7 +127,6 @@ def run_file(
         try:
             interpreter.interpret(loaded.program)
         except RecursionError as exc:
-            from .errors import RuntimeResourceError
             raise RuntimeResourceError(
                 "ホストの実行スタックを使い切りました", 1, 1, str(loaded.entry),
                 "Saga規格の固定再帰上限ではありません。ホスト資源またはアルゴリズムを確認してください",
@@ -174,8 +172,8 @@ class SagaSession:
                 "Saga規格の固定上限ではありません。実装資源を増やすか、必要に応じて式を分割してください",
             ) from exc
         validate_ast_size(program, self.filename, _ast_budget(self.resource_budget))
-        candidate = copy.deepcopy(self.checker)
         try:
+            candidate = copy.deepcopy(self.checker)
             with adaptive_recursion_capacity(ast_node_count(program)):
                 candidate.check(program)
         except RecursionError as exc:

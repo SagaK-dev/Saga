@@ -46,6 +46,17 @@ class SagaSessionTransaction054Tests(unittest.TestCase):
         self.assertEqual(ctx.exception.filename, "repl.saga")
         self.assertEqual(ctx.exception.code, "SAGA-T002")
 
+    def test_checker_snapshot_recursion_is_reported_as_type_limit_error(self):
+        with SagaSession(filename="repl.saga") as session:
+            with (
+                mock.patch("saga.api.copy.deepcopy", side_effect=RecursionError("host stack")),
+                self.assertRaises(TypeLimitError) as ctx,
+            ):
+                session.execute("print(1)\n")
+
+        self.assertEqual(ctx.exception.filename, "repl.saga")
+        self.assertEqual(ctx.exception.code, "SAGA-T002")
+
     def test_runtime_recursion_is_reported_as_saga_resource_error(self):
         with SagaSession(filename="repl.saga") as session:
             with (
