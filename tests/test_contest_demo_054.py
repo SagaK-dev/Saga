@@ -23,9 +23,26 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(manifest["single_change"]["line"], contest_demo.RISKY_LINE.strip())
             self.assertEqual(manifest["observed"]["safe"], "pass")
             self.assertEqual(manifest["observed"]["unsafe"], "fail")
-            self.assertEqual(len(manifest["observed"]["safe_runtime_output"]), 1)
-            self.assertTrue(
-                any(code.startswith("SAGA-C") for code in manifest["observed"]["unsafe_diagnostics"])
+            self.assertEqual(
+                manifest["observed"]["safe_runtime_output"],
+                list(contest_demo.EXPECTED_SAFE_OUTPUT),
+            )
+            self.assertTrue(manifest["integrity"]["verified"])
+            self.assertTrue(manifest["integrity"]["safe_runtime"])
+            self.assertTrue(manifest["integrity"]["timing_contract"])
+            self.assertTrue(manifest["integrity"]["unsafe_diagnostic"])
+            self.assertTrue(manifest["integrity"]["analysis_scope"])
+            self.assertEqual(
+                manifest["integrity"]["expected"]["unsafe_code"],
+                contest_demo.EXPECTED_UNSAFE_CODE,
+            )
+            self.assertEqual(
+                manifest["integrity"]["expected"]["unsafe_line"],
+                contest_demo._risky_line_number(),
+            )
+            self.assertIn(
+                contest_demo.EXPECTED_UNSAFE_CODE,
+                manifest["observed"]["unsafe_diagnostics"],
             )
             for artifact in manifest["artifacts"]:
                 self.assertTrue((root / artifact).is_file(), artifact)
@@ -59,6 +76,47 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertIn(contest_demo.RISKY_LINE.strip(), index)
             self.assertIn("50 µs", index)
 
+    def test_integrity_checks_fail_closed_on_unrelated_results(self):
+        self.assertFalse(contest_demo._safe_runtime_matches(["0.4"]))
+        self.assertFalse(contest_demo._safe_runtime_matches(["0.3", "extra"]))
+
+        expected_timing = dict(contest_demo.EXPECTED_TIMING)
+        self.assertTrue(
+            contest_demo._timing_matches_expected({
+                "control_functions": [{"role": "tick", "timing": expected_timing}],
+            })
+        )
+        wrong_timing = {**expected_timing, "budget_us": 34}
+        self.assertFalse(
+            contest_demo._timing_matches_expected({
+                "control_functions": [{"role": "tick", "timing": wrong_timing}],
+            })
+        )
+
+        expected_issue = {
+            "code": contest_demo.EXPECTED_UNSAFE_CODE,
+            "line": contest_demo._risky_line_number(),
+            "column": 1,
+            "message": "machine.monotonic_ns is not allowed here",
+            "hint": "sample outside the control tick",
+        }
+        self.assertTrue(contest_demo._unsafe_issue_matches_expected({"issues": [expected_issue]}))
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "code": "SAGA-C491"}],
+            })
+        )
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "line": expected_issue["line"] + 1}],
+            })
+        )
+        self.assertFalse(
+            contest_demo._unsafe_issue_matches_expected({
+                "issues": [{**expected_issue, "hint": ""}],
+            })
+        )
+
     def test_unsafe_source_is_safe_source_plus_exactly_one_line(self):
         self.assertEqual(contest_demo.UNSAFE_SOURCE.count(contest_demo.RISKY_LINE), 1)
         self.assertEqual(
@@ -83,6 +141,7 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(rc, 0)
             text = output.getvalue()
             self.assertIn("single change: VERIFIED", text)
+            self.assertIn("integrity:     VERIFIED", text)
             self.assertIn("safe:   PASS", text)
             self.assertIn("unsafe: FAIL", text)
             self.assertIn("index.html", text)
