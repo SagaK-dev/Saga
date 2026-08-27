@@ -1,0 +1,17 @@
+use machine
+
+# 60 kHz current-loop contract.
+# 60,000 Hz = 16.666666... us per cycle. The 12.5 us source budget leaves
+# about 4.166667 us of arithmetic headroom. Hosted execution is not a WCET claim.
+
+@control_tick(60000, 12.5)
+fn current_tick(previous: decimal, sample: decimal) -> decimal {
+    let limited = machine.slew(previous, sample, 1000.0, 0.0000166666666666667)
+    let filtered = machine.low_pass(previous, limited, 0.25)
+    let centered = machine.deadband(filtered, 0.001)
+    return machine.integrate_clamped(previous, centered, 0.0000166666666666667, -1.0, 1.0)
+}
+
+let clock = machine.cyclic_clock(60000)
+print(machine.cycle_stats_json(clock))
+print(current_tick(0.0, 0.5))

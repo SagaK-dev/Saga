@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass
+from decimal import Decimal
 from typing import Iterable
 
 from . import ast_nodes as ast
@@ -110,7 +111,14 @@ def validate_control_tick(fn: ast.FunctionDecl) -> list[ControlProfileViolation]
         else:
             rate_expr, budget_expr = annotation.arguments
             rate = rate_expr.value if isinstance(rate_expr, ast.Literal) and isinstance(rate_expr.value, int) and not isinstance(rate_expr.value, bool) else None
-            budget = budget_expr.value if isinstance(budget_expr, ast.Literal) and isinstance(budget_expr.value, int) and not isinstance(budget_expr.value, bool) else None
+            budget_value = budget_expr.value if isinstance(budget_expr, ast.Literal) else None
+            budget = (
+                Decimal(budget_value)
+                if isinstance(budget_value, int) and not isinstance(budget_value, bool)
+                else budget_value
+                if isinstance(budget_value, Decimal)
+                else None
+            )
             if rate is None or rate <= 0 or rate > 1_000_000:
                 out.append(ControlProfileViolation(
                     _token(rate_expr, annotation.name), "SAGA-C481",
@@ -120,10 +128,10 @@ def validate_control_tick(fn: ast.FunctionDecl) -> list[ControlProfileViolation]
             if budget is None or budget <= 0:
                 out.append(ControlProfileViolation(
                     _token(budget_expr, annotation.name), "SAGA-C482",
-                    "@control_tick budget_us は正の整数リテラルにしてください",
-                    "1周期内の実行予算をマイクロ秒で明示してください",
+                    "@control_tick budget_us は正の数値リテラルにしてください",
+                    "1周期内の実行予算をマイクロ秒で明示してください。小数も使用できます",
                 ))
-            elif rate is not None and rate > 0 and budget * rate > 1_000_000:
+            elif rate is not None and rate > 0 and budget * Decimal(rate) > Decimal(1_000_000):
                 out.append(ControlProfileViolation(
                     _token(budget_expr, annotation.name), "SAGA-C483",
                     "@control_tick budget_us が指定周期を超えています",
@@ -199,6 +207,7 @@ _CONTROL_SAFE_MACHINE_EXACT = {
     "machine.actuator_step", "machine.actuator_set", "machine.actuator_set_all", "machine.actuator_zero",
     "machine.control_guard_begin", "machine.control_guard_end", "machine.control_guard_ok",
     "machine.budget_begin", "machine.budget_end",
+    "machine.slew", "machine.low_pass", "machine.deadband", "machine.integrate_clamped",
 }
 
 

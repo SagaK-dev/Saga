@@ -559,3 +559,50 @@ if move < 2 { print(move) }`
 		t.Fatalf("output=%q", out)
 	}
 }
+
+
+func TestControl60kHz054RationalPhaseAndFractionalBudget(t *testing.T) {
+	clock, err := newMachineCycleHz(60000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := clock.deadlineForCycle(60000).Sub(clock.Anchor); got != time.Second {
+		t.Fatalf("60000-cycle phase=%s", got)
+	}
+	if got := clock.deadlineForCycle(120000).Sub(clock.Anchor); got != 2*time.Second {
+		t.Fatalf("120000-cycle phase=%s", got)
+	}
+
+	good := `use machine
+@control_tick(60000, 12.5)
+fn tick(previous: decimal, sample: decimal) -> decimal {
+  let limited = machine.slew(previous, sample, 1000.0, 0.0000166666666666667)
+  let filtered = machine.low_pass(previous, limited, 0.25)
+  let centered = machine.deadband(filtered, 0.001)
+  return machine.integrate_clamped(previous, centered, 0.0000166666666666667, -1.0, 1.0)
+}`
+	if _, err := runSagaForTest(t, good); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := `@control_tick(60000, 16.7)
+fn tick(value: decimal) -> decimal { return value }`
+	if _, err := runSagaForTest(t, bad); err == nil || !strings.Contains(err.Error(), "exceeds the declared period") {
+		t.Fatalf("expected 60 kHz overbudget rejection, got %v", err)
+	}
+}
+
+func TestControlSignalPrimitives054(t *testing.T) {
+	src := `use machine
+print(machine.slew(0.0, 1.0, 10.0, 0.02))
+print(machine.low_pass(0.0, 1.0, 0.25))
+print(machine.deadband(0.5, 0.1))
+print(machine.integrate_clamped(0.9, 1.0, 0.2, -1.0, 1.0))`
+	out, err := runSagaForTest(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "0.2\n0.25\n0.4\n1" {
+		t.Fatalf("output=%q", out)
+	}
+}

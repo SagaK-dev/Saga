@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -41,6 +42,17 @@ def _int_literal(value: ast.Expr) -> int | None:
     return None
 
 
+def _number_literal(value: ast.Expr) -> Decimal | None:
+    if not isinstance(value, ast.Literal):
+        return None
+    raw = value.value
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return Decimal(raw)
+    if isinstance(raw, Decimal):
+        return raw
+    return None
+
+
 def _program_scopes(program: ast.Program, prefix: str = "") -> Iterator[tuple[str, ast.Program]]:
     """Yield each lexical source-module scope exactly once.
 
@@ -75,22 +87,23 @@ def _control_entry(function: ast.FunctionDecl, qualified_name: str) -> dict[str,
         entry["timing_contract"] = "legacy-untimed" if not tick.arguments else "invalid"
         if len(tick.arguments) == 2:
             rate_hz = _int_literal(tick.arguments[0])
-            budget_us = _int_literal(tick.arguments[1])
+            budget_us = _number_literal(tick.arguments[1])
             if (
                 rate_hz is not None
                 and budget_us is not None
                 and 0 < rate_hz <= 1_000_000
                 and budget_us > 0
-                and budget_us * rate_hz <= 1_000_000
+                and budget_us * Decimal(rate_hz) <= Decimal(1_000_000)
             ):
-                period_us = 1_000_000 / rate_hz
+                period_us = Decimal(1_000_000) / Decimal(rate_hz)
+                rendered_budget = int(budget_us) if budget_us == budget_us.to_integral_value() else float(budget_us)
                 entry["timing_contract"] = "declared"
                 entry["timing"] = {
                     "rate_hz": rate_hz,
-                    "period_us": round(period_us, 3),
-                    "budget_us": budget_us,
-                    "budget_percent": round((budget_us / period_us) * 100, 1),
-                    "headroom_us": round(period_us - budget_us, 3),
+                    "period_us": round(float(period_us), 6),
+                    "budget_us": rendered_budget,
+                    "budget_percent": round(float((budget_us / period_us) * Decimal(100)), 1),
+                    "headroom_us": round(float(period_us - budget_us), 6),
                 }
 
     return entry

@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"math/big"
+	"strings"
+)
 
 func machineControlTickAnnotated(d *FnDecl) bool {
 	for _, a := range d.Annotations {
@@ -59,6 +62,18 @@ func controlAnnotationInt(e Expr) (int64, bool) {
 	return i.Int64(), true
 }
 
+func controlAnnotationNumber(e Expr) (*big.Rat, bool) {
+	lit, ok := e.(*Literal)
+	if !ok {
+		return nil, false
+	}
+	n, ok := lit.Value.(Number)
+	if !ok || (n.Kind != "int" && n.Kind != "decimal") || n.R == nil {
+		return nil, false
+	}
+	return new(big.Rat).Set(n.R), true
+}
+
 func validateControlTickContract047(d *FnDecl) error {
 	for _, a := range d.Annotations {
 		if a.Name != "control_tick" || len(a.Args) == 0 {
@@ -71,11 +86,12 @@ func validateControlTickContract047(d *FnDecl) error {
 		if !ok || rate <= 0 || rate > 1000000 {
 			return diag("SAGA-T001", "SAGA-C481", "@control_tick rate_hz must be an integer literal in 1..1000000", a.Args[0].token())
 		}
-		budget, ok := controlAnnotationInt(a.Args[1])
-		if !ok || budget <= 0 {
-			return diag("SAGA-T001", "SAGA-C482", "@control_tick budget_us must be a positive integer literal", a.Args[1].token())
+		budget, ok := controlAnnotationNumber(a.Args[1])
+		if !ok || budget.Sign() <= 0 {
+			return diag("SAGA-T001", "SAGA-C482", "@control_tick budget_us must be a positive numeric literal", a.Args[1].token())
 		}
-		if budget*rate > 1000000 {
+		used := new(big.Rat).Mul(new(big.Rat).Set(budget), big.NewRat(rate, 1))
+		if used.Cmp(big.NewRat(1000000, 1)) > 0 {
 			return diag("SAGA-T001", "SAGA-C483", "@control_tick budget_us exceeds the declared period", a.Args[1].token())
 		}
 	}
@@ -267,6 +283,7 @@ var controlSafeMachine050 = map[string]bool{
 	"machine.s_curve_acceleration": true, "machine.actuator_step": true, "machine.actuator_set": true, "machine.actuator_set_all": true,
 	"machine.actuator_zero": true, "machine.control_guard_begin": true, "machine.control_guard_end": true, "machine.control_guard_ok": true,
 	"machine.budget_begin": true, "machine.budget_end": true,
+	"machine.slew": true, "machine.low_pass": true, "machine.deadband": true, "machine.integrate_clamped": true,
 }
 
 func controlLiteralInt050(e Expr) (int64, bool) { return controlAnnotationInt(e) }

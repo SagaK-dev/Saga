@@ -664,6 +664,8 @@ func (s *MachineSafety) snapshot() (bool, string) {
 type MachineCycle struct {
 	Period       time.Duration
 	Next         time.Time
+	Anchor       time.Time
+	FrequencyHz  int64
 	Overruns     int64
 	LastJitterUS int64
 	Cycles       int64
@@ -680,26 +682,61 @@ func newMachineCycle(periodUS int) (*MachineCycle, error) {
 }
 
 func newMachineCycleHz(frequencyHz int) (*MachineCycle, error) {
-	if frequencyHz < 1 || frequencyHz > 100000 {
-		return nil, fmt.Errorf("cycle frequency must be 1..100000 Hz")
+	if frequencyHz < 1 || frequencyHz > 1000000 {
+		return nil, fmt.Errorf("cycle frequency must be 1..1000000 Hz")
 	}
-	p := time.Second / time.Duration(frequencyHz)
+	rate := int64(frequencyHz)
+	p := time.Duration(int64(time.Second) / rate)
 	if p <= 0 {
 		return nil, fmt.Errorf("cycle period is too small")
 	}
-	return newMachineCycleDuration(p)
+	now := time.Now()
+	c := &MachineCycle{Period: p, Anchor: now, FrequencyHz: rate}
+	c.Next = c.deadlineForCycle(1)
+	return c, nil
 }
 
 func newMachineCycleDuration(p time.Duration) (*MachineCycle, error) {
 	if p <= 0 {
 		return nil, fmt.Errorf("control cycle period must be > 0")
 	}
-	return &MachineCycle{Period: p, Next: time.Now().Add(p)}, nil
+	now := time.Now()
+	return &MachineCycle{Period: p, Anchor: now, Next: now.Add(p)}, nil
+}
+
+func (c *MachineCycle) deadlineForCycle(cycle int64) time.Time {
+	if cycle <= 0 {
+		return c.Anchor
+	}
+	if c.FrequencyHz <= 0 {
+		return c.Anchor.Add(time.Duration(cycle) * c.Period)
+	}
+	wholeSeconds := cycle / c.FrequencyHz
+	remainderCycles := cycle % c.FrequencyHz
+	fractionalNS := (remainderCycles*int64(time.Second) + c.FrequencyHz - 1) / c.FrequencyHz
+	return c.Anchor.Add(time.Duration(wholeSeconds)*time.Second + time.Duration(fractionalNS))
+}
+
+func (c *MachineCycle) dueCycle(now time.Time) int64 {
+	if c.FrequencyHz <= 0 {
+		if !now.After(c.Anchor) {
+			return 0
+		}
+		return int64(now.Sub(c.Anchor) / c.Period)
+	}
+	elapsed := now.Sub(c.Anchor)
+	if elapsed <= 0 {
+		return 0
+	}
+	wholeSeconds := int64(elapsed / time.Second)
+	remainderNS := int64(elapsed % time.Second)
+	return wholeSeconds*c.FrequencyHz + remainderNS*c.FrequencyHz/int64(time.Second)
 }
 
 func (c *MachineCycle) waitDue() int64 {
 	// Sleep for the coarse portion, then spin over only the final short guard.
-	// This avoids relying on sub-millisecond sleep precision for a 250 us loop.
+	// Frequency-mode deadlines come from the rational phase, never from adding
+	// a rounded period repeatedly.
 	guard := 80 * time.Microsecond
 	if c.Period/3 < guard {
 		guard = c.Period / 3
@@ -708,27 +745,30 @@ func (c *MachineCycle) waitDue() int64 {
 		guard = 2 * time.Microsecond
 	}
 	for {
-		now := time.Now()
 		remaining := time.Until(c.Next)
 		if remaining <= 0 {
 			break
 		}
 		if remaining > guard {
 			time.Sleep(remaining - guard)
-		} else {
-			// Short bounded spin; runtime.Gosched here would reintroduce scheduler
-			// latency, so intentionally do no work until the absolute deadline.
-			_ = now
 		}
 	}
 	now := time.Now()
-	late := now.Sub(c.Next)
+	due := int64(1)
+	if c.FrequencyHz > 0 {
+		if candidate := c.dueCycle(now) - c.Cycles; candidate > due {
+			due = candidate
+		}
+	} else {
+		late := now.Sub(c.Next)
+		if late >= c.Period {
+			due += int64(late / c.Period)
+		}
+	}
+	expectedLatest := c.deadlineForCycle(c.Cycles + due)
+	late := now.Sub(expectedLatest)
 	if late < 0 {
 		late = 0
-	}
-	due := int64(1)
-	if late >= c.Period {
-		due += int64(late / c.Period)
 	}
 	c.LastJitterUS = late.Microseconds()
 	c.LastDue = due
@@ -740,7 +780,7 @@ func (c *MachineCycle) waitDue() int64 {
 	if due > 1 {
 		c.Overruns += due - 1
 	}
-	c.Next = c.Next.Add(time.Duration(due) * c.Period)
+	c.Next = c.deadlineForCycle(c.Cycles + 1)
 	return due
 }
 
@@ -748,9 +788,17 @@ func (c *MachineCycle) wait() { _ = c.waitDue() }
 
 func (c *MachineCycle) statsJSON() string {
 	periodUS := float64(c.Period) / float64(time.Microsecond)
+	frequency := float64(time.Second) / float64(c.Period)
+	phaseModel := "fixed-duration"
+	if c.FrequencyHz > 0 {
+		frequency = float64(c.FrequencyHz)
+		periodUS = 1000000.0 / frequency
+		phaseModel = "exact-rational-frequency"
+	}
 	b, _ := json.Marshal(map[string]any{
-		"frequency_hz":   float64(time.Second) / float64(c.Period),
+		"frequency_hz":   frequency,
 		"period_us":      periodUS,
+		"period_ns_floor": int64(c.Period),
 		"cycles":         c.Cycles,
 		"wait_calls":     c.WaitCalls,
 		"overruns":       c.Overruns,
@@ -758,6 +806,7 @@ func (c *MachineCycle) statsJSON() string {
 		"max_due":        c.MaxDue,
 		"last_jitter_us": c.LastJitterUS,
 		"backend":        "go-absolute-sleep-spin",
+		"phase_model":    phaseModel,
 		"timing_class":   "hosted-soft-realtime",
 	})
 	return string(b)
@@ -827,6 +876,34 @@ func machineLowPass(previous, sample, alpha float64) (float64, error) {
 		return 0, fmt.Errorf("low-pass alpha must be in 0..1")
 	}
 	return previous + alpha*(sample-previous), nil
+}
+
+func machineDeadband(value, width float64) (float64, error) {
+	if !finiteFloat(value) || !finiteFloat(width) || width < 0 {
+		return 0, fmt.Errorf("deadband requires finite value and width >= 0")
+	}
+	if math.Abs(value) <= width {
+		return 0, nil
+	}
+	if value > 0 {
+		return value - width, nil
+	}
+	return value + width, nil
+}
+
+func machineIntegrateClamped(previous, input, dt, low, high float64) (float64, error) {
+	for _, value := range []float64{previous, input, dt, low, high} {
+		if !finiteFloat(value) {
+			return 0, fmt.Errorf("integrator arguments must be finite")
+		}
+	}
+	if dt <= 0 {
+		return 0, fmt.Errorf("integrator dt must be > 0")
+	}
+	if low > high {
+		return 0, fmt.Errorf("integrator low must not exceed high")
+	}
+	return clampFloat(previous+input*dt, low, high), nil
 }
 
 func machineServoDuty(deg, minDeg, maxDeg, minUS, maxUS, periodUS float64) (float64, error) {
@@ -2190,6 +2267,40 @@ func (i *Interpreter) callMachineNative(name string, args []Value, t Token) (Val
 			v[j] = q
 		}
 		q, e := machineLowPass(v[0], v[1], v[2])
+		if e != nil {
+			return fail(e)
+		}
+		return machineNumberFromFloat(q), nil
+	case "deadband":
+		if len(args) != 2 {
+			return fail(fmt.Errorf("requires 2 arguments"))
+		}
+		v := make([]float64, 2)
+		for j := range v {
+			q, e := machineNumber(args[j], "argument")
+			if e != nil {
+				return fail(e)
+			}
+			v[j] = q
+		}
+		q, e := machineDeadband(v[0], v[1])
+		if e != nil {
+			return fail(e)
+		}
+		return machineNumberFromFloat(q), nil
+	case "integrate_clamped":
+		if len(args) != 5 {
+			return fail(fmt.Errorf("requires 5 arguments"))
+		}
+		v := make([]float64, 5)
+		for j := range v {
+			q, e := machineNumber(args[j], "argument")
+			if e != nil {
+				return fail(e)
+			}
+			v[j] = q
+		}
+		q, e := machineIntegrateClamped(v[0], v[1], v[2], v[3], v[4])
 		if e != nil {
 			return fail(e)
 		}
