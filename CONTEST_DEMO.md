@@ -34,7 +34,9 @@ Open:
 build/contest-demo/index.html
 ```
 
-The command generates the source files, terminal/JSON/HTML Control Reports, and a machine-readable `manifest.json`.
+The first page is a Japanese-first judge view designed for the two-minute DIFF video: it shows the problem, the 20 kHz timing contract, the exact one-line source change, PASS/FAIL, the stable diagnostic, the suggested correction, and the evidence boundary without requiring a repository tour.
+
+The command executes the safe Saga program through the normal interpreter, embeds that observed output in the judge view, and also generates the source files, terminal/JSON/HTML Control Reports, and a machine-readable `manifest.json`. The manifest records SHA-256 hashes for both source examples so the submitted demo can be checked against the exact source pair shown in the video.
 
 Expected result:
 
@@ -62,15 +64,15 @@ Removing that line reconstructs the safe source byte-for-byte. The point of the 
 
 **0:00-0:20 — problem**
 
-Show the safe source. Explain that machine/robot/drone control code should remain readable, but timing-sensitive paths should not silently accumulate hidden work.
+Open `index.html` immediately. Point to the 20 kHz / 50 µs period and the declared 35 µs budget. Explain that machine/robot/drone control code should remain readable, but timing-sensitive paths should not silently accumulate hidden work.
 
 **0:20-0:50 — safe path**
 
-Open `safe-report.html`. Point out the declared rate, period, budget, checked helper, and PASS result.
+Keep the judge view on screen. Show the green PASS card, the 15 µs declared headroom, and that the helper is part of the checked control surface.
 
 **0:50-1:20 — one risky change**
 
-Show the comparison section in `index.html`, then the unsafe source and `unsafe-report.html`. Point to the single added line and `SAGA-C...` diagnostic. Explain the suggested design: sample time or perform raw/external I/O outside the periodic path, then pass prepared state into the tick.
+Scroll to the exact one-line diff and then the red result card. Point to the `SAGA-C...` diagnostic and its correction hint. Only open `unsafe-report.html` if more detail is useful.
 
 **1:20-1:45 — prove it is language behavior**
 
@@ -81,7 +83,7 @@ saga check build/contest-demo/diff_safe_control.saga
 saga-control-report build/contest-demo/diff_safe_control.saga
 ```
 
-Then show `tests/test_contest_demo_054.py` and the green Core CI. The regression suite proves that removing the one risky line from the unsafe source reconstructs the safe source exactly, and that the generated demo sources match the checked-in contest examples.
+Then show the green Core CI briefly. The regression suite proves that removing the one risky line from the unsafe source reconstructs the safe source exactly, generated sources match the checked-in examples, and clean wheel/sdist installs can regenerate the demo.
 
 **1:45-2:00 — boundary and future**
 

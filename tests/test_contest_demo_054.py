@@ -23,6 +23,7 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(manifest["single_change"]["line"], contest_demo.RISKY_LINE.strip())
             self.assertEqual(manifest["observed"]["safe"], "pass")
             self.assertEqual(manifest["observed"]["unsafe"], "fail")
+            self.assertEqual(len(manifest["observed"]["safe_runtime_output"]), 1)
             self.assertTrue(
                 any(code.startswith("SAGA-C") for code in manifest["observed"]["unsafe_diagnostics"])
             )
@@ -34,13 +35,29 @@ class ContestDemo054Tests(unittest.TestCase):
             self.assertEqual(persisted["observed"], manifest["observed"])
             self.assertEqual(persisted["single_change"], manifest["single_change"])
             self.assertIn("exact one-line", persisted["boundary"])
+            self.assertEqual(len(persisted["source_sha256"]["safe"]), 64)
+            self.assertEqual(len(persisted["source_sha256"]["unsafe"]), 64)
+            self.assertNotEqual(
+                persisted["source_sha256"]["safe"],
+                persisted["source_sha256"]["unsafe"],
+            )
+            self.assertEqual(
+                persisted["judge_summary"]["category"],
+                "programming-middle-school-problem-solving",
+            )
 
             safe_report = json.loads((root / "safe-report.json").read_text(encoding="utf-8"))
             self.assertEqual(safe_report["analysis_scope"], "loaded-program")
 
             index = (root / "index.html").read_text(encoding="utf-8")
-            self.assertIn("byte-for-byte identical except for one added line", index)
+            self.assertIn('<html lang="ja">', index)
+            self.assertIn("機械制御の「危ない1行」を", index)
+            self.assertIn("同じ解析器で比較", index)
+            self.assertIn("再現方法", index)
+            self.assertIn("実際のSaga実行結果", index)
+            self.assertIn("判定の境界", index)
             self.assertIn(contest_demo.RISKY_LINE.strip(), index)
+            self.assertIn("50 µs", index)
 
     def test_unsafe_source_is_safe_source_plus_exactly_one_line(self):
         self.assertEqual(contest_demo.UNSAFE_SOURCE.count(contest_demo.RISKY_LINE), 1)

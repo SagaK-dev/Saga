@@ -24,7 +24,7 @@ A beginner can write readable control logic, but machine-control software also h
 - shared mutation, recursion, and indirect calls make the control path harder to reason about;
 - a compiler error that only says "invalid" is difficult to learn from.
 
-Saga already has `@control_tick` and `@control_safe`. The DIFF branch adds a human-readable **Control Report** so these language rules become visible as a product feature rather than remaining an implementation detail.
+Saga already has `@control_tick` and `@control_safe`. The current development line also includes a human-readable **Control Report** and a self-contained Japanese judge view, so these language rules are visible as a product feature rather than remaining an implementation detail.
 
 ## 2-minute execution-video flow
 
@@ -91,6 +91,9 @@ That boundary is important. It makes the project more credible than claiming cer
 
 ## How this maps to the 2026 judging criteria
 
+For the middle/high-school problem-solving track, the published rubric totals 27 points: idea/originality, target breadth, and value created (6), UX/UI (6), specification and programming level (6), appeal/social relevance/future potential (4), and final-presentation quality (5). The contest demo should make as many of those points visible without requiring a judge to inspect the repository first.
+
+
 ### Originality — 2 points
 
 Lead with the combination, not individual ingredients:
@@ -126,15 +129,16 @@ No unmeasured claim such as "prevents accidents by X%" should be used without da
 
 ### UX/UI — 6 points total
 
-The Control Report exists for this criterion as much as for debugging:
+The Control Report and contest index exist for this criterion as much as for debugging:
 
-- one command from source to report;
-- the same information is available as terminal text, JSON, or self-contained HTML;
-- timing numbers are converted into period, budget percentage, and headroom;
-- problems include the source location, diagnostic code, explanation, and suggested fix;
-- the HTML output is responsive and has a clear PASS / REVIEW NEEDED hierarchy.
+- one command from source to a self-contained judge view;
+- the judge view is Japanese-first and shows the problem, one-line comparison, PASS/FAIL result, diagnosis, and evidence boundary on one page;
+- the same analysis is also available as terminal text, JSON, or a detailed self-contained HTML report;
+- timing numbers are converted into period, declared budget, budget percentage, and headroom;
+- problems include the source location, stable diagnostic code, explanation, and suggested fix;
+- the layout is responsive, print-friendly, keyboard-readable, and does not require network access.
 
-A future improvement before the final presentation would be a browser playground, but it is not necessary for the first submission if the local report demo is stable.
+A browser editor can still be a later extension, but the submission should not depend on one. Offline reproducibility is a stronger first-round property.
 
 ### Specification — 4 points
 
@@ -177,6 +181,8 @@ Before uploading:
 - [ ] `saga check examples/contest/diff_safe_control.saga`
 - [ ] safe report returns exit code 0
 - [ ] unsafe report returns exit code 1 and an actionable diagnostic
+- [ ] judge-facing `index.html` is Japanese-first and readable at desktop/mobile widths
+- [ ] PASS/FAIL, the one-line diff, timing numbers, diagnostic, and correction hint are visible without opening developer tools
 - [ ] HTML reports render correctly on desktop and mobile widths
 - [ ] core GitHub Actions CI is green
 - [ ] execution video is at most 2 minutes
