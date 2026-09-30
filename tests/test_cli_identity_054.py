@@ -41,9 +41,9 @@ class CLIIdentity054Tests(unittest.TestCase):
         notes = (root / "RELEASE_NOTES.md").read_text(encoding="utf-8")
         versioned_notes = root / f"RELEASE_NOTES_{saga.__version__}.md"
 
-        self.assertIn(f"Current development line — Saga {saga.__version__}", notes)
+        self.assertIn(f"現在の開発ライン — Saga {saga.__version__}", notes)
         self.assertIn(f"RELEASE_NOTES_{saga.__version__}.md", notes)
-        self.assertIn("Latest frozen release — Saga 0.50.0", notes)
+        self.assertIn("最新の凍結リリース — Saga 0.50.0", notes)
         self.assertTrue(versioned_notes.is_file())
 
 
