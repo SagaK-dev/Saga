@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
+import unittest
 import zipfile
 
 
@@ -34,61 +35,66 @@ def _minimal_submission_tree(root: Path) -> None:
     _write(root, "tests/test_sample.py", "def test_sample(): assert True\n")
 
 
-def test_preflight_reports_missing_required_paths() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        errors = builder.validate_repository(Path(tmp))
-    assert errors
-    assert any("README.md" in error for error in errors)
-    assert any("saga" in error for error in errors)
+class ContestSubmissionBuilderTests(unittest.TestCase):
+    def test_preflight_reports_missing_required_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            errors = builder.validate_repository(Path(tmp))
+        self.assertTrue(errors)
+        self.assertTrue(any("README.md" in error for error in errors))
+        self.assertTrue(any("saga" in error for error in errors))
+
+    def test_archive_is_deterministic_and_excludes_generated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_submission_tree(root)
+            _write(root, ".venv/secret.txt", "must not ship\n")
+            _write(root, "build/generated.txt", "must not ship\n")
+            _write(root, "saga/__pycache__/cached.pyc", "must not ship\n")
+            _write(root, "demo.mp4", "video is uploaded separately\n")
+
+            first = root / "first.zip"
+            second = root / "second.zip"
+            builder.build_archive(root, first)
+            builder.build_archive(root, second)
+
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+            with zipfile.ZipFile(first) as archive:
+                names = archive.namelist()
+                prefix = f"{builder.ARCHIVE_ROOT}/"
+                self.assertIn(f"{prefix}README.md", names)
+                self.assertIn(f"{prefix}saga/checker.py", names)
+                self.assertIn(f"{prefix}docs/PROGRAMMING_FLOW_JA.md", names)
+                self.assertIn(f"{prefix}SUBMISSION_SHA256SUMS.txt", names)
+
+                self.assertFalse(any(".venv/" in name for name in names))
+                self.assertFalse(any("build/" in name for name in names))
+                self.assertFalse(any("__pycache__/" in name for name in names))
+                self.assertFalse(any(name.endswith(".mp4") for name in names))
+                self.assertFalse(any(name.endswith(".zip") for name in names))
+
+    def test_checksum_manifest_matches_archived_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_submission_tree(root)
+            output = root / "submission.zip"
+            builder.build_archive(root, output)
+
+            with zipfile.ZipFile(output) as archive:
+                prefix = f"{builder.ARCHIVE_ROOT}/"
+                manifest_text = archive.read(
+                    f"{prefix}SUBMISSION_SHA256SUMS.txt"
+                ).decode("utf-8")
+                entries: dict[str, str] = {}
+                for line in manifest_text.splitlines():
+                    digest, relative = line.split("  ", 1)
+                    entries[relative] = digest
+
+                self.assertTrue(entries)
+                for relative, expected in entries.items():
+                    data = archive.read(f"{prefix}{relative}")
+                    self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
 
 
-def test_archive_is_deterministic_and_excludes_generated_files() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _minimal_submission_tree(root)
-        _write(root, ".venv/secret.txt", "must not ship\n")
-        _write(root, "build/generated.txt", "must not ship\n")
-        _write(root, "saga/__pycache__/cached.pyc", "must not ship\n")
-        _write(root, "demo.mp4", "video is uploaded separately\n")
-
-        first = root / "first.zip"
-        second = root / "second.zip"
-        builder.build_archive(root, first)
-        builder.build_archive(root, second)
-
-        assert first.read_bytes() == second.read_bytes()
-
-        with zipfile.ZipFile(first) as archive:
-            names = archive.namelist()
-            prefix = f"{builder.ARCHIVE_ROOT}/"
-            assert f"{prefix}README.md" in names
-            assert f"{prefix}saga/checker.py" in names
-            assert f"{prefix}docs/PROGRAMMING_FLOW_JA.md" in names
-            assert f"{prefix}SUBMISSION_SHA256SUMS.txt" in names
-
-            assert not any(".venv/" in name for name in names)
-            assert not any("build/" in name for name in names)
-            assert not any("__pycache__/" in name for name in names)
-            assert not any(name.endswith(".mp4") for name in names)
-            assert not any(name.endswith(".zip") for name in names)
-
-
-def test_checksum_manifest_matches_archived_source() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _minimal_submission_tree(root)
-        output = root / "submission.zip"
-        builder.build_archive(root, output)
-
-        with zipfile.ZipFile(output) as archive:
-            prefix = f"{builder.ARCHIVE_ROOT}/"
-            manifest_text = archive.read(f"{prefix}SUBMISSION_SHA256SUMS.txt").decode("utf-8")
-            entries = {}
-            for line in manifest_text.splitlines():
-                digest, relative = line.split("  ", 1)
-                entries[relative] = digest
-
-            assert entries
-            for relative, expected in entries.items():
-                data = archive.read(f"{prefix}{relative}")
-                assert hashlib.sha256(data).hexdigest() == expected
+if __name__ == "__main__":
+    unittest.main()
