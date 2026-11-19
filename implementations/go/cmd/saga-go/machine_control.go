@@ -1432,7 +1432,7 @@ func (i *Interpreter) requireNet(host string, port int) error {
 	if len(i.NetHosts) == 0 {
 		return &SagaError{Code: "SAGA-R103", ID: "SAGA-R103", Message: fmt.Sprintf("network access denied: %s:%d; use --allow-net host[:port]", host, port)}
 	}
-	normalized := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(host, ".")))
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(strings.TrimSuffix(host, ".")), "[]"))
 	for _, raw := range i.NetHosts {
 		entry := strings.ToLower(strings.TrimSpace(raw))
 		if entry == "*" {
@@ -1451,7 +1451,12 @@ func (i *Interpreter) requireNet(host string, port int) error {
 				allowedPort = q
 			}
 		}
-		if allowedHost == normalized && (allowedPort < 0 || allowedPort == port) {
+		hostMatches := allowedHost == normalized
+		if strings.HasPrefix(allowedHost, "*.") {
+			suffix := allowedHost[1:]
+			hostMatches = strings.HasSuffix(normalized, suffix) && normalized != allowedHost[2:]
+		}
+		if hostMatches && (allowedPort < 0 || allowedPort == port) {
 			return nil
 		}
 	}

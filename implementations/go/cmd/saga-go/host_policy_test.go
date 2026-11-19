@@ -77,6 +77,38 @@ func TestUDPWildcardBindRequiresWildcardGrant(t *testing.T) {
 	}
 }
 
+func TestNetworkHostPatternsRequireExactSuffixAndPort(t *testing.T) {
+	i := NewInterpreter(NewChecker(), func(string) {})
+	i.NetHosts = []string{"*.example.com:443", "[::1]:8080"}
+	for _, allowed := range []struct {
+		host string
+		port int
+	}{
+		{"api.example.com", 443},
+		{"sub.api.example.com", 443},
+		{"::1", 8080},
+		{"[::1]", 8080},
+	} {
+		if err := i.requireNet(allowed.host, allowed.port); err != nil {
+			t.Errorf("%s:%d denied: %v", allowed.host, allowed.port, err)
+		}
+	}
+	for _, blocked := range []struct {
+		host string
+		port int
+	}{
+		{"example.com", 443},
+		{"evil-example.com", 443},
+		{"api.example.com.evil", 443},
+		{"api.example.com", 80},
+		{"::1", 8081},
+	} {
+		if err := i.requireNet(blocked.host, blocked.port); err == nil {
+			t.Errorf("%s:%d unexpectedly permitted", blocked.host, blocked.port)
+		}
+	}
+}
+
 func TestHostPolicyRespectsSpecificGrants(t *testing.T) {
 	i := NewInterpreter(NewChecker(), func(string) {})
 	root := t.TempDir()
