@@ -117,6 +117,9 @@ func (i *Interpreter) callJIT(name string, args []Value, t Token) (Value, error)
 	if i.UnsafeDepth == 0 {
 		return nil, i.rerr(t, "SAGA-R188", "JIT execution requires unsafe { ... }")
 	}
+	if err := i.requireHostUnsafe(); err != nil {
+		return nil, i.rerr(t, "SAGA-R103", err.Error())
+	}
 	switch name {
 	case "compile_i64":
 		if len(args) != 1 {

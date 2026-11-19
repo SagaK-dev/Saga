@@ -50,6 +50,7 @@ Core:
     --allow-db PATH     Permit database access inside PATH
     --allow-net HOST[:PORT]   Permit a network destination
     --allow-process     Permit external process execution
+    --allow-unsafe-native  Permit unsafe FFI/JIT with full host authority
     --allow-device      Permit physical device operations
   check FILE            Type-check without executing
   build INPUT           Build standalone native executable
@@ -288,6 +289,7 @@ Interop exporter:
 		sagaDiagnosticFormat = "human"
 		allowDevice := false
 		allowProcess := false
+		allowUnsafeNative := false
 		netHosts := []string{}
 		readRoots := []string{}
 		writeRoots := []string{}
@@ -296,6 +298,10 @@ Interop exporter:
 			if args[j] == "--diagnostic-format" && j+1 < len(args) {
 				sagaDiagnosticFormat = args[j+1]
 				j++
+				continue
+			}
+			if args[j] == "--allow-unsafe-native" {
+				allowUnsafeNative = true
 				continue
 			}
 			if args[j] == "--allow-process" {
@@ -357,6 +363,7 @@ Interop exporter:
 		it.WriteRoots = append([]string(nil), writeRoots...)
 		it.DBRoots = append([]string(nil), dbRoots...)
 		it.AllowProcess = allowProcess
+		it.AllowUnsafeNative = allowUnsafeNative
 		if err = it.Interpret(stmts); err != nil {
 			return printDiagnostic(err)
 		}

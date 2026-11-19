@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+func TestUnsafeNativeRequiresHostApproval(t *testing.T) {
+	i := NewInterpreter(NewChecker(), func(string) {})
+	if err := i.requireHostUnsafe(); err == nil {
+		t.Fatal("unsafe native operations must be denied by default")
+	}
+	i.AllowUnsafeNative = true
+	if err := i.requireHostUnsafe(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHostPolicyIsDeniedByDefault(t *testing.T) {
 	i := NewInterpreter(NewChecker(), func(string) {})
 	root := t.TempDir()

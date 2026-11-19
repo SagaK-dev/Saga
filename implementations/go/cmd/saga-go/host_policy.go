@@ -62,6 +62,13 @@ func (i *Interpreter) requireHostPath(path string, roots []string, option string
 	return fmt.Errorf("filesystem access denied: %s; use %s PATH", target, option)
 }
 
+func (i *Interpreter) requireHostUnsafe() error {
+	if i.TrustedHost || i.AllowUnsafeNative {
+		return nil
+	}
+	return fmt.Errorf("unsafe native execution denied; use --allow-unsafe-native only with trusted code")
+}
+
 func (i *Interpreter) requireHostProcess() error {
 	if i.TrustedHost || i.AllowProcess {
 		return nil

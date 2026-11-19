@@ -1,5 +1,6 @@
 # Unreleased — Host security and reliability
 
+- Required a separate host grant for FFI, extern C, and executable JIT features. An `unsafe` source block alone does not authorize native execution.
 - Enforced explicit read, write, database, network, and process grants when the Go CLI runs hosted Saga code. The same checks cover `app.invoke` filesystem, process, and HTTP operations, so indirect host calls cannot bypass the policy. Trusted embedding hosts must opt in explicitly.
 - Added bounds to hosted HTTP responses and to the Python HTTP server's request bodies, connections, and read waits. Limits can be tuned through environment variables.
 - Fixed a Go registry search bug that could display a package under the wrong name or version. Reject linked installation destinations in both package managers.

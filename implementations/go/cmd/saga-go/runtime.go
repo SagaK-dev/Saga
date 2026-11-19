@@ -46,6 +46,7 @@ type Interpreter struct {
 	WriteRoots  []string
 	DBRoots     []string
 	AllowProcess bool
+	AllowUnsafeNative bool
 	// TrustedHost is reserved for embedders that explicitly own the executed code.
 	TrustedHost bool
 }
@@ -224,6 +225,7 @@ func (i *Interpreter) exec(s Stmt) error {
 		child.WriteRoots = append([]string(nil), i.WriteRoots...)
 		child.DBRoots = append([]string(nil), i.DBRoots...)
 		child.AllowProcess = i.AllowProcess
+		child.AllowUnsafeNative = i.AllowUnsafeNative
 		child.TrustedHost = i.TrustedHost
 		if err := child.Interpret(x.Stmts); err != nil {
 			return err
