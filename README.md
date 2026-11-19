@@ -141,7 +141,7 @@ saga-go run examples/fullstack/http_once.saga --allow-net api.example.com:443
 
 ファイルの書き込みには `--allow-write`、データベースには `--allow-db`、外部プロセスには `--allow-process` を指定できます。FFI・JITなどホスト上で任意のコード実行につながるネイティブ機能は、信頼できるプログラムに限って `--allow-unsafe-native` を明示します。Sagaソース内の `unsafe` ブロックだけではホスト権限を取得できません。許可したディレクトリの外にはアクセスできません。Goランタイムを組み込む場合も、`NewInterpreter` は制限付きで開始します。信頼済みのホストがコードの実行責任を持つ場合だけ `TrustedHost` を指定してください。
 
-ホストファイルのテキスト読み込みには既定で64 MiBの上限があります。`SAGA_IO_MAX_READ_BYTES` で変更できます。Pythonのバイナリ読み込みにも同じ上限が適用されます。
+ホストファイルのテキスト読み込みには既定で64 MiBの上限があります。`SAGA_IO_MAX_READ_BYTES` で変更できます。Pythonのバイナリ読み込みにも同じ上限が適用されます。Pythonのファイルコピーはバッファ単位で行い、成功するまでは既存のコピー先を置き換えません。
 
 HTTP通信の既定の最大応答本文は8 MiB、タイムアウトは30秒です。上限は `SAGA_HTTP_MAX_BODY_BYTES` と `SAGA_HTTP_TIMEOUT_MS`（Go）、`SAGA_HTTP_TIMEOUT_SECONDS`（Python）で変更できます。
 

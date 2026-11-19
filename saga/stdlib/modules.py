@@ -18,6 +18,7 @@ import ssl
 import subprocess
 import sqlite3
 import statistics
+import tempfile
 import threading
 import time as pytime
 import urllib.error
@@ -486,15 +487,23 @@ def io_remove(interpreter, args):
 def io_copy(interpreter, args):
     src = interpreter.capabilities.require_read(_as_text(args[0]))
     dst = interpreter.capabilities.require_write(_as_text(args[1]))
+    staged = None
     try:
         if src == dst:
             return None
         dst.parent.mkdir(parents=True, exist_ok=True)
-        with src.open("rb") as source, dst.open("wb") as destination:
+        with src.open("rb") as source, tempfile.NamedTemporaryFile(
+            mode="wb", dir=dst.parent, prefix=f".{dst.name}.copy-", delete=False
+        ) as destination:
+            staged = Path(destination.name)
             while chunk := source.read(64 << 10):
                 destination.write(chunk)
+        os.replace(staged, dst)
     except OSError as exc:
         raise NativeFailure(f"ファイルをコピーできません: {src} -> {dst}: {exc}") from exc
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
     return None
 
 

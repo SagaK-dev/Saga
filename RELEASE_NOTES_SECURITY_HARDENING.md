@@ -19,7 +19,7 @@ saga-go run api.saga --allow-net api.example.com:443
 埋め込み側の `NewInterpreter` も原則拒否です。信頼されたコードのみを扱うホストは `TrustedHost` を明示できます。
 
 ### ファイルI/Oの資源制限
-PythonとGoの `io.read_text`、Pythonの `io.read_bytes` は、既定で64 MiBの上限を設け、`SAGA_IO_MAX_READ_BYTES` で調整できます。Pythonの `io.copy` はコピー元の全内容をメモリに展開せず、64 KiBずつ処理する方式へ変更しました。
+PythonとGoの `io.read_text`、Pythonの `io.read_bytes` は、既定で64 MiBの上限を設け、`SAGA_IO_MAX_READ_BYTES` で調整できます。Pythonの `io.copy` はコピー元の全内容をメモリに展開せず、64 KiBずつ一時ファイルへ書き込み、コピーが成功した場合に限りコピー先を置き換える方式へ変更しました。
 
 ### HTTPの制限
 Python HTTPサーバーにはリクエスト本文の上限（既定8 MiB）、読み込みタイムアウト（15秒）、同時処理数の上限（32）を設けました。大きすぎるリクエストは413、多すぎる接続は503で拒否します。

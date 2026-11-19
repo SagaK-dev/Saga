@@ -4,9 +4,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+from types import SimpleNamespace
 
 from saga import Capabilities, compile_source, run_source
 from saga.errors import TypeCheckError
+from saga.native import NativeFailure
+from saga.stdlib.modules import io_copy
 
 
 class SagaFullStackTests(unittest.TestCase):
@@ -101,6 +104,47 @@ class SagaFullStackTests(unittest.TestCase):
             self.assertEqual(len(output), 2)
             self.assertTrue(all("上限" in message for message in output))
             self.assertEqual(copied.read_text(encoding="utf-8"), "hello world")
+
+    def test_copy_failure_keeps_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = root / "large.txt"
+            target = root / "existing.txt"
+            source.write_bytes(b"x" * (70 << 10))
+            target.write_text("original", encoding="utf-8")
+            capabilities = Capabilities(read_roots=(root,), write_roots=(root,))
+            host = SimpleNamespace(capabilities=capabilities)
+            original_open = Path.open
+
+            class InterruptedSource:
+                def __init__(self, handle):
+                    self.handle = handle
+                    self.calls = 0
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return self.handle.__exit__(*args)
+
+                def read(self, size):
+                    self.calls += 1
+                    if self.calls > 1:
+                        raise OSError("simulated read failure")
+                    return self.handle.read(size)
+
+            def open_with_failure(path, mode="r", *args, **kwargs):
+                handle = original_open(path, mode, *args, **kwargs)
+                if path == source and mode == "rb":
+                    return InterruptedSource(handle)
+                return handle
+
+            with patch.object(Path, "open", open_with_failure):
+                with self.assertRaises(NativeFailure):
+                    io_copy(host, [str(source), str(target)])
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "original")
+            self.assertEqual(list(root.glob(".*.copy-*")), [])
 
     def test_time_json_and_crypto(self):
         source = '''
