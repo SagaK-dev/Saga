@@ -707,6 +707,7 @@ func runRegistryServer(root, addr, tlsCert, tlsKey string) error {
 				}
 				n, v, er := packageIdentity(data)
 				if er != nil || n != ne.Name() || v != ve.Name() {
+					continue
 				}
 				out = append(out, map[string]any{"name": ne.Name(), "version": ve.Name(), "sha256": sig.SHA256, "size": len(data), "publisher_fingerprint": sig.Fingerprint})
 			}
@@ -880,6 +881,32 @@ func safeExtractSagaPackage(data []byte, dest string) error {
 	return nil
 }
 
+
+ // rejectPackagePathSymlinks checks the package destination before creating
+ // staging directories. An existing link in .saga/packages must not redirect
+ // an installation outside the current project.
+ func rejectPackagePathSymlinks(root, destination string) error {
+ 	relative, err := filepath.Rel(root, destination)
+ 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+ 		return fmt.Errorf("package destination escapes project")
+ 	}
+ 	current := root
+ 	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+ 		current = filepath.Join(current, part)
+ 		info, err := os.Lstat(current)
+ 		if os.IsNotExist(err) {
+ 			continue
+ 		}
+ 		if err != nil {
+ 			return err
+ 		}
+ 		if info.Mode()&os.ModeSymlink != 0 {
+ 			return fmt.Errorf("package destination contains a symlink: %s", current)
+ 		}
+ 	}
+ 	return nil
+ }
+ 
 func registryAdd(projectRoot, spec, registry, trustOnce string) error {
 	if e := validateRegistryBaseURL(registry); e != nil {
 		return e
@@ -934,6 +961,9 @@ func registryAdd(projectRoot, spec, registry, trustOnce string) error {
 		return e
 	}
 	dest := filepath.Join(root, ".saga", "packages", n, v)
+	if err := rejectPackagePathSymlinks(root, dest); err != nil {
+		return err
+	}
 	parent := filepath.Dir(dest)
 	if e = os.MkdirAll(parent, 0755); e != nil {
 		return e

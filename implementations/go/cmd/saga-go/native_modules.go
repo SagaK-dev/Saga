@@ -22,7 +22,11 @@ import (
 	"time"
 )
 
+const defaultHTTPBodyLimit = 8 << 20
+const defaultHTTPTimeout = 30 * time.Second
+
 var sagaHTTPClient = &http.Client{
+	Timeout: defaultHTTPTimeout,
 	Transport: &http.Transport{Proxy: nil},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -44,20 +48,14 @@ func standardHTTPClientForPolicy() (*http.Client, error) {
 }
 
 func readStandardHTTPText(r io.Reader) (string, error) {
+	max := int64(defaultHTTPBodyLimit)
 	raw := strings.TrimSpace(os.Getenv("SAGA_HTTP_MAX_BODY_BYTES"))
-	if raw == "" {
-		b, err := io.ReadAll(r)
-		if err != nil {
-			return "", err
+	if raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer")
 		}
-		if !validUTF8String(string(b)) {
-			return "", fmt.Errorf("HTTP response body is not valid UTF-8")
-		}
-		return string(b), nil
-	}
-	max, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || max <= 0 {
-		return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer")
+		max = parsed
 	}
 	b, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {

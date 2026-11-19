@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from saga import Capabilities, compile_source, run_source
@@ -147,6 +148,26 @@ class SagaFullStackTests(unittest.TestCase):
         http.stop(server)
         '''
         self.assertEqual(self.run_program(source, caps), ["HTTP \"GET / HTTP/1.1\" 200 -", "200 Saga API"])
+
+    def test_http_server_rejects_oversized_requests(self):
+        caps = Capabilities(net_hosts=("127.0.0.1",))
+        source = """
+        use http
+        fn handle(request: any) -> any {
+            return http.response(200, "unexpected", "text/plain")
+        }
+        let server = http.serve("127.0.0.1", 0, handle)
+        let response = http.post(
+            "http://127.0.0.1:" + text(http.port(server)) + "/",
+            "a request larger than four bytes",
+            "text/plain"
+        )
+        print(http.status(response))
+        http.stop(server)
+        """
+        with patch.dict("os.environ", {"SAGA_HTTP_SERVER_MAX_BODY_BYTES": "4"}):
+            result = self.run_program(source, caps)
+        self.assertTrue(any(line == "413" for line in result), result)
 
     def test_reflection_and_annotations(self):
         source = '''

@@ -848,17 +848,14 @@ def _http_request(interpreter, method: str, url: str, data: bytes | None, header
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _CapabilityRedirectHandler(interpreter.capabilities))
 
     def read_response(response) -> HttpResponse:
-        limit = _host_positive_int("SAGA_HTTP_MAX_BODY_BYTES")
-        body = response.read(limit + 1) if limit is not None else response.read()
-        if limit is not None and len(body) > limit:
+        limit = _host_positive_int("SAGA_HTTP_MAX_BODY_BYTES") or (8 << 20)
+        body = response.read(limit + 1)
+        if len(body) > limit:
             raise NativeFailure(f"HTTPレスポンスが管理者上限 {limit} バイトを超えました")
         return HttpResponse(response.status, body, dict(response.headers.items()))
 
     try:
-        timeout = _host_positive_int("SAGA_HTTP_TIMEOUT_SECONDS")
-        if timeout is None:
-            with opener.open(request) as response:
-                return read_response(response)
+        timeout = _host_positive_int("SAGA_HTTP_TIMEOUT_SECONDS") or 30
         with opener.open(request, timeout=timeout) as response:
             return read_response(response)
     except urllib.error.HTTPError as exc:
@@ -913,16 +910,37 @@ def http_serve(interpreter, args):
     interpreter.capabilities.require_net(host, port)
 
     owner = interpreter
+    max_body_bytes = _host_positive_int("SAGA_HTTP_SERVER_MAX_BODY_BYTES") or (8 << 20)
+    read_timeout = _host_positive_int("SAGA_HTTP_SERVER_READ_TIMEOUT_SECONDS") or 15
+    admission = threading.BoundedSemaphore(
+        _host_positive_int("SAGA_HTTP_SERVER_MAX_CONNECTIONS") or 32
+    )
+
     class Handler(BaseHTTPRequestHandler):
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(read_timeout)
+
         def _handle(self):
-            try: size = int(self.headers.get("Content-Length", "0") or 0)
+            try:
+                size = int(self.headers.get("Content-Length", "0") or 0)
             except ValueError:
                 self.send_error(400, "Invalid Content-Length")
                 return
             if size < 0:
                 self.send_error(400, "Invalid Content-Length")
                 return
-            body = self.rfile.read(size) if size else b""
+            if size > max_body_bytes:
+                self.send_error(413, "Request body too large")
+                return
+            try:
+                body = self.rfile.read(size) if size else b""
+            except (OSError, TimeoutError):
+                self.close_connection = True
+                return
+            if len(body) != size:
+                self.close_connection = True
+                return
             parsed = urllib.parse.urlsplit(self.path)
             request = HttpRequest(
                 self.command, parsed.path, dict(self.headers.items()), body,
@@ -941,8 +959,34 @@ def http_serve(interpreter, args):
         do_GET = _handle; do_POST = _handle; do_PUT = _handle; do_DELETE = _handle; do_PATCH = _handle
         def log_message(self, format, *args): owner.output("HTTP " + (format % args))
 
-    try: server = ThreadingHTTPServer((host, port), Handler)
-    except OSError as exc: raise NativeFailure(f"HTTPサーバーを開始できません: {exc}") from exc
+    class BoundedHTTPServer(ThreadingHTTPServer):
+        def process_request(self, request, client_address):
+            if not admission.acquire(blocking=False):
+                try:
+                    request.sendall(
+                        b"HTTP/1.1 503 Service Unavailable\r\n"
+                        b"Connection: close\r\nContent-Length: 0\r\n\r\n"
+                    )
+                except OSError:
+                    pass
+                self.shutdown_request(request)
+                return
+            try:
+                super().process_request(request, client_address)
+            except BaseException:
+                admission.release()
+                raise
+
+        def process_request_thread(self, request, client_address):
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                admission.release()
+
+    try:
+        server = BoundedHTTPServer((host, port), Handler)
+    except OSError as exc:
+        raise NativeFailure(f"HTTPサーバーを開始できません: {exc}") from exc
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, name=f"saga-http-{port}", daemon=True)
     handle = HttpServerHandle(server, thread)
