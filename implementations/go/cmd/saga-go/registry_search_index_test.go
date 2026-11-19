@@ -96,6 +96,30 @@ func TestRegistrySearchLimitsAndSortsMetadata(t *testing.T) {
 	}
 }
 
+func TestRegistryPublisherCannotFollowLinkedPackageDirectory(t *testing.T) {
+	root := t.TempDir()
+	outer := t.TempDir()
+	if err := os.Symlink(outer, filepath.Join(root, "demo")); err != nil {
+		t.Skipf("symlinks not supported on this host: %v", err)
+	}
+	if _, err := registryPath(root, "demo", "1.0.0"); err == nil ||
+		!strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("linked package directory must be rejected: %v", err)
+	}
+	data := makeRegistryTestPackage(t, "demo", "1.0.0")
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := signBytes(data, privateKey)
+	if _, err := persistRegistryPackage(root, "demo", "1.0.0", data, sig); err == nil {
+		t.Fatal("publisher followed a symbolic link outside registry root")
+	}
+	if _, err := os.Stat(filepath.Join(outer, "1.0.0")); !os.IsNotExist(err) {
+		t.Fatalf("registry wrote outside package root: %v", err)
+	}
+}
+
 func TestRegistryPlainHTTPRequiresLoopback(t *testing.T) {
 	for _, addr := range []string{"127.0.0.1:7331", "localhost:0", "[::1]:7000"} {
 		if !registryLoopbackBind(addr) {

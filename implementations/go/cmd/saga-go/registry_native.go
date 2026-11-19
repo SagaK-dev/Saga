@@ -504,7 +504,11 @@ func registryPath(root, name, version string) (string, error) {
 	if !validRegistryPackageIdentity(name, version) {
 		return "", fmt.Errorf("invalid package identity")
 	}
-	return filepath.Join(root, name, version), nil
+	destination := filepath.Join(root, name, version)
+	if err := rejectPackagePathSymlinks(root, destination); err != nil {
+		return "", err
+	}
+	return destination, nil
 }
 
 func signatureFromHeaders(h http.Header, data []byte) (packageSignature, error) {
