@@ -125,6 +125,19 @@ saga-control-report examples/contest/diff_unsafe_control.saga
   - なぜ拒否されたか、何を直せばよいかを診断できるか。
 - これらは単なる数学ライブラリではなく、言語・ツールチェーンの責務として扱います。
 
+## Go 実行時のアクセス権限
+
+Go版の `saga-go run` は、標準状態でホストのファイル、データベース、通信、外部プロセスへのアクセスを許可しません。必要な範囲のみ明示します。
+
+```bash
+saga-go run examples/fullstack/file_and_time.saga --allow-read ./data
+saga-go run examples/fullstack/http_once.saga --allow-net api.example.com:443
+```
+
+ファイルの書き込みには `--allow-write`、データベースには `--allow-db`、外部プロセスには `--allow-process` を指定できます。許可したディレクトリの外にはアクセスできません。Goランタイムを組み込む場合も、`NewInterpreter` は制限付きで開始します。信頼済みのホストがコードの実行責任を持つ場合だけ `TrustedHost` を指定してください。
+
+HTTP通信の既定の最大応答本文は8 MiB、タイムアウトは30秒です。上限は `SAGA_HTTP_MAX_BODY_BYTES` と `SAGA_HTTP_TIMEOUT_MS`（Go）、`SAGA_HTTP_TIMEOUT_SECONDS`（Python）で変更できます。
+
 ## クイックスタート
 
 - リポジトリを取得します。

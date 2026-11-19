@@ -64,6 +64,25 @@ func TestHostPolicyRespectsSpecificGrants(t *testing.T) {
 	}
 }
 
+func TestAppInvokeCannotBypassHostPolicy(t *testing.T) {
+	i := NewInterpreter(NewChecker(), func(string) {})
+	for _, probe := range []struct {
+		operation string
+		payload   string
+	}{
+		{"filesystem.read_text", `{"path":"/etc/hosts"}`},
+		{"filesystem.write_text", `{"path":"file.txt","text":"hello"}`},
+		{"filesystem.rename", `{"from":"old.txt","to":"new.txt"}`},
+		{"process.run", `{"argv":["echo","hello"]}`},
+		{"network.http_get", `{"url":"http://127.0.0.1/"}`},
+	} {
+		arguments := []Value{probe.operation, probe.payload}
+		if err := i.checkHostAccess("app", "invoke", arguments); err == nil {
+			t.Errorf("app.invoke(%s) bypassed its host capability", probe.operation)
+		}
+	}
+}
+
 func TestHostPolicyResolvesSymlinkDestinations(t *testing.T) {
 	root := t.TempDir()
 	other := t.TempDir()

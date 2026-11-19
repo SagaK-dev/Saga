@@ -1,3 +1,11 @@
+# Unreleased — Host security and reliability
+
+- Enforced explicit read, write, database, network, and process grants when the Go CLI runs hosted Saga code. The same checks cover `app.invoke` filesystem, process, and HTTP operations, so indirect host calls cannot bypass the policy. Trusted embedding hosts must opt in explicitly.
+- Added bounds to hosted HTTP responses and to the Python HTTP server's request bodies, connections, and read waits. Limits can be tuned through environment variables.
+- Fixed a Go registry search bug that could display a package under the wrong name or version. Reject linked installation destinations in both package managers.
+- Checked annotation-processor output paths as a group before writing, and staged individual output files for atomic replacement.
+- Added regression tests for rejected host operations and oversized HTTP requests.
+
 # Saga 0.53.0 (development)
 
 - Refocused Saga on machine control, robotics, and autonomous/drone systems while keeping the existing general-purpose language surface available for tooling, telemetry, configuration, simulation, and integration.
