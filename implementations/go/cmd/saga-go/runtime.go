@@ -42,6 +42,12 @@ type Interpreter struct {
 	UnsafeDepth int
 	AllowDevice bool
 	NetHosts    []string
+	ReadRoots   []string
+	WriteRoots  []string
+	DBRoots     []string
+	AllowProcess bool
+	// TrustedHost is reserved for embedders that explicitly own the executed code.
+	TrustedHost bool
 }
 
 func NewInterpreter(checker *Checker, output func(string)) *Interpreter {
@@ -214,6 +220,11 @@ func (i *Interpreter) exec(s Stmt) error {
 		child := NewInterpreter(childChecker, i.output)
 		child.AllowDevice = i.AllowDevice
 		child.NetHosts = append([]string(nil), i.NetHosts...)
+		child.ReadRoots = append([]string(nil), i.ReadRoots...)
+		child.WriteRoots = append([]string(nil), i.WriteRoots...)
+		child.DBRoots = append([]string(nil), i.DBRoots...)
+		child.AllowProcess = i.AllowProcess
+		child.TrustedHost = i.TrustedHost
 		if err := child.Interpret(x.Stmts); err != nil {
 			return err
 		}

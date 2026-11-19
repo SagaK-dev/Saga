@@ -1426,6 +1426,9 @@ func (d *machineModbusTCP) sagaMachineClose() error {
 	return d.conn.Close()
 }
 func (i *Interpreter) requireNet(host string, port int) error {
+	if i.TrustedHost {
+		return nil
+	}
 	if len(i.NetHosts) == 0 {
 		return &SagaError{Code: "SAGA-R103", ID: "SAGA-R103", Message: fmt.Sprintf("network access denied: %s:%d; use --allow-net host[:port]", host, port)}
 	}

@@ -281,10 +281,33 @@ Interop exporter:
 		}
 		sagaDiagnosticFormat = "human"
 		allowDevice := false
+		allowProcess := false
 		netHosts := []string{}
+		readRoots := []string{}
+		writeRoots := []string{}
+		dbRoots := []string{}
 		for j := 2; j < len(args); j++ {
 			if args[j] == "--diagnostic-format" && j+1 < len(args) {
 				sagaDiagnosticFormat = args[j+1]
+				j++
+				continue
+			}
+			if args[j] == "--allow-process" {
+				allowProcess = true
+				continue
+			}
+			if args[j] == "--allow-read" && j+1 < len(args) {
+				readRoots = append(readRoots, args[j+1])
+				j++
+				continue
+			}
+			if args[j] == "--allow-write" && j+1 < len(args) {
+				writeRoots = append(writeRoots, args[j+1])
+				j++
+				continue
+			}
+			if args[j] == "--allow-db" && j+1 < len(args) {
+				dbRoots = append(dbRoots, args[j+1])
 				j++
 				continue
 			}
@@ -324,6 +347,10 @@ Interop exporter:
 		it := NewInterpreter(c, nil)
 		it.AllowDevice = allowDevice
 		it.NetHosts = append([]string(nil), netHosts...)
+		it.ReadRoots = append([]string(nil), readRoots...)
+		it.WriteRoots = append([]string(nil), writeRoots...)
+		it.DBRoots = append([]string(nil), dbRoots...)
+		it.AllowProcess = allowProcess
 		if err = it.Interpret(stmts); err != nil {
 			return printDiagnostic(err)
 		}

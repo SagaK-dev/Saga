@@ -438,7 +438,11 @@ func strconvFloat(v float64, precision int) string {
 	return fmt.Sprintf("%.17g", v)
 }
 
+
 func (i *Interpreter) callNativeModule(module, name string, args []Value, t Token) (Value, error) {
+	if err := i.checkHostAccess(module, name, args); err != nil {
+		return nil, i.rerr(t, "SAGA-R103", err.Error())
+	}
 	if v, handled, err := i.callSecurityModule(module, name, args, t); handled {
 		return v, err
 	}
