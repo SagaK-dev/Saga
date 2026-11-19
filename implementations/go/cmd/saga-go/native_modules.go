@@ -52,8 +52,8 @@ func readStandardHTTPText(r io.Reader) (string, error) {
 	raw := strings.TrimSpace(os.Getenv("SAGA_HTTP_MAX_BODY_BYTES"))
 	if raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed <= 0 {
-			return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer")
+		if err != nil || parsed <= 0 || parsed == 1<<63-1 {
+			return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer below MaxInt64")
 		}
 		max = parsed
 	}

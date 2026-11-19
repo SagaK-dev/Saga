@@ -93,6 +93,10 @@ func TestStandardHTTPBodyLimitHasSafeDefault(t *testing.T) {
 	if _, err := readStandardHTTPText(strings.NewReader(body)); err == nil {
 		t.Fatal("administrator body limit was not enforced")
 	}
+	t.Setenv("SAGA_HTTP_MAX_BODY_BYTES", "9223372036854775807")
+	if _, err := readStandardHTTPText(strings.NewReader("short")); err == nil {
+		t.Fatal("a body limit that overflows max+1 must be rejected")
+	}
 }
 
 func TestHTTPServerRejectsInvalidUTF8AndHasReadBounds(t *testing.T) {

@@ -18,6 +18,26 @@ func TestUnsafeNativeRequiresHostApproval(t *testing.T) {
 	}
 }
 
+func TestUnsafeNativeEntrypointsEnforceHostApproval(t *testing.T) {
+	i := NewInterpreter(NewChecker(), func(string) {})
+	i.UnsafeDepth = 1
+	token := Token{Lex: "unsafe-native"}
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{"ffi", func() error { _, err := i.callFFI("profile", nil, token); return err }},
+		{"jit", func() error { _, err := i.callJIT("compile_i64", nil, token); return err }},
+		{"extern", func() error { _, err := i.callExtern(nil, nil, token); return err }},
+	} {
+		err := call.run()
+		sagaErr, ok := err.(*SagaError)
+		if !ok || sagaErr.ID != "SAGA-R103" {
+			t.Errorf("%s should reject ungranted native execution: %v", call.name, err)
+		}
+	}
+}
+
 func TestHostPolicyIsDeniedByDefault(t *testing.T) {
 	i := NewInterpreter(NewChecker(), func(string) {})
 	root := t.TempDir()
