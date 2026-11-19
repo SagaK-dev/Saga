@@ -552,6 +552,16 @@ def install(registry:str,spec:str,project:str|Path='.',trust_once:str='',allow_u
     elif not allow_unsigned:
         raise ValueError('unsigned registry package rejected; signed package is required')
     target_parent=target.parent
+    # Do not stage archives through user-controlled directory links.
+    current=root
+    for component in ('vendor',name,version):
+        current=current/component
+        if current.is_symlink():
+            raise ValueError(f'package destination contains a symbolic link: {current}')
+        try:
+            current.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError('package destination escapes project') from exc
     target_parent.mkdir(parents=True,exist_ok=True)
     staging=Path(tempfile.mkdtemp(prefix=f'.{version}.install-',dir=target_parent))
     try:

@@ -37,6 +37,7 @@ func runSagaForTest(t *testing.T, src string) (string, error) {
 	}
 	out := []string{}
 	it := NewInterpreter(c, func(s string) { out = append(out, s) })
+	it.TrustedHost = true // This helper executes only test-owned programs.
 	err = it.Interpret(stmts)
 	return strings.Join(out, "\n"), err
 }
@@ -439,6 +440,7 @@ game.canvas game.clear game.set game.text game.render game.present game.frame ga
 	covered := map[string]bool{}
 	tok := Token{File: "<api-smoke>", Line: 1, Col: 1}
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	call := func(module, name string, args ...Value) Value {
 		t.Helper()
 		v, err := it.callNativeModule(module, name, args, tok)

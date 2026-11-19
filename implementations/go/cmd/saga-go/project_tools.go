@@ -59,12 +59,58 @@ func validProjectName(s string) bool {
 	return true
 }
 
+// parseTomlString accepts basic and literal strings used in saga.toml.
+// Unsupported multi-line values are diagnosed rather than read partially.
 func parseTomlString(v string) (string, error) {
 	v = strings.TrimSpace(v)
-	if len(v) < 2 || v[0] != '"' || v[len(v)-1] != '"' {
+	if len(v) < 2 {
 		return "", fmt.Errorf("project values must be quoted TOML strings")
 	}
+	if v[0] == '\'' && v[len(v)-1] == '\'' {
+		if len(v) >= 6 && strings.HasPrefix(v, "'''") {
+			return "", fmt.Errorf("multi-line TOML strings are not supported by the native project loader")
+		}
+		value := v[1 : len(v)-1]
+		if strings.ContainsAny(value, "'\n\r") {
+			return "", fmt.Errorf("invalid TOML literal string")
+		}
+		return value, nil
+	}
+	if v[0] != '"' || v[len(v)-1] != '"' {
+		return "", fmt.Errorf("project values must be quoted TOML strings")
+	}
+	if strings.HasPrefix(v, "\"\"\"") {
+		return "", fmt.Errorf("multi-line TOML strings are not supported by the native project loader")
+	}
 	return strconv.Unquote(v)
+}
+
+func trimTomlComment(value string) string {
+	quote := byte(0)
+	escaped := false
+	for i := 0; i < len(value); i++ {
+		char := value[i]
+		if quote == '"' {
+			if escaped {
+				escaped = false
+			} else if char == '\\' {
+				escaped = true
+			} else if char == '"' {
+				quote = 0
+			}
+		} else if quote == '\'' {
+			if char == '\'' {
+				quote = 0
+			}
+		} else {
+			if char == '"' || char == '\'' {
+				quote = char
+			} else if char == '#' {
+				return strings.TrimSpace(value[:i])
+			}
+		}
+	}
+	return strings.TrimSpace(value)
 }
 func loadProject(path string) (*Project, error) {
 	abs, err := filepath.Abs(path)
@@ -88,6 +134,7 @@ func loadProject(path string) (*Project, error) {
 	}
 	vals := map[string]string{}
 	inProject := false
+	seenProject := false
 	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -95,6 +142,12 @@ func loadProject(path string) (*Project, error) {
 		}
 		if strings.HasPrefix(line, "[") {
 			inProject = line == "[project]"
+			if inProject {
+				if seenProject {
+					return nil, fmt.Errorf("duplicate [project] table")
+				}
+				seenProject = true
+			}
 			continue
 		}
 		if !inProject {
@@ -105,10 +158,13 @@ func loadProject(path string) (*Project, error) {
 			continue
 		}
 		key := strings.TrimSpace(line[:eq])
-		value := strings.TrimSpace(line[eq+1:])
-		if i := strings.Index(value, " #"); i >= 0 {
-			value = strings.TrimSpace(value[:i])
+		if key != "name" && key != "version" && key != "language" && key != "entry" && key != "test_dir" {
+			continue
 		}
+		if _, found := vals[key]; found {
+			return nil, fmt.Errorf("saga.toml contains duplicate project.%s", key)
+		}
+		value := trimTomlComment(line[eq+1:])
 		q, e := parseTomlString(value)
 		if e != nil {
 			return nil, fmt.Errorf("saga.toml %s: %w", key, e)

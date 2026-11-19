@@ -22,7 +22,11 @@ import (
 	"time"
 )
 
+const defaultHTTPBodyLimit = 8 << 20
+const defaultHTTPTimeout = 30 * time.Second
+
 var sagaHTTPClient = &http.Client{
+	Timeout: defaultHTTPTimeout,
 	Transport: &http.Transport{Proxy: nil},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -44,20 +48,14 @@ func standardHTTPClientForPolicy() (*http.Client, error) {
 }
 
 func readStandardHTTPText(r io.Reader) (string, error) {
+	max := int64(defaultHTTPBodyLimit)
 	raw := strings.TrimSpace(os.Getenv("SAGA_HTTP_MAX_BODY_BYTES"))
-	if raw == "" {
-		b, err := io.ReadAll(r)
-		if err != nil {
-			return "", err
+	if raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 || parsed == 1<<63-1 {
+			return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer below MaxInt64")
 		}
-		if !validUTF8String(string(b)) {
-			return "", fmt.Errorf("HTTP response body is not valid UTF-8")
-		}
-		return string(b), nil
-	}
-	max, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || max <= 0 {
-		return "", fmt.Errorf("SAGA_HTTP_MAX_BODY_BYTES must be a positive integer")
+		max = parsed
 	}
 	b, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {
@@ -68,6 +66,35 @@ func readStandardHTTPText(r io.Reader) (string, error) {
 	}
 	if !validUTF8String(string(b)) {
 		return "", fmt.Errorf("HTTP response body is not valid UTF-8")
+	}
+	return string(b), nil
+}
+
+const defaultFileReadLimit = 64 << 20
+
+func readHostedFileText(path string) (string, error) {
+	max := int64(defaultFileReadLimit)
+	if raw := strings.TrimSpace(os.Getenv("SAGA_IO_MAX_READ_BYTES")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 || value == 1<<63-1 {
+			return "", fmt.Errorf("SAGA_IO_MAX_READ_BYTES must be a positive integer below MaxInt64")
+		}
+		max = value
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	b, err := io.ReadAll(io.LimitReader(file, max+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(b)) > max {
+		return "", fmt.Errorf("file exceeds host read limit %d bytes", max)
+	}
+	if !validUTF8String(string(b)) {
+		return "", fmt.Errorf("file is not valid UTF-8")
 	}
 	return string(b), nil
 }
@@ -438,7 +465,11 @@ func strconvFloat(v float64, precision int) string {
 	return fmt.Sprintf("%.17g", v)
 }
 
+
 func (i *Interpreter) callNativeModule(module, name string, args []Value, t Token) (Value, error) {
+	if err := i.checkHostAccess(module, name, args); err != nil {
+		return nil, i.rerr(t, "SAGA-R103", err.Error())
+	}
 	if v, handled, err := i.callSecurityModule(module, name, args, t); handled {
 		return v, err
 	}
@@ -464,14 +495,11 @@ func (i *Interpreter) callNativeModule(module, name string, args []Value, t Toke
 			if !ok {
 				return nil, i.rerr(t, "SAGA-R150", "path must be text")
 			}
-			b, e := os.ReadFile(p)
+			content, e := readHostedFileText(p)
 			if e != nil {
 				return nil, i.rerr(t, "SAGA-R160", e.Error())
 			}
-			if !validUTF8String(string(b)) {
-				return nil, i.rerr(t, "SAGA-R160", "file is not valid UTF-8")
-			}
-			return string(b), nil
+			return content, nil
 		case "write_text":
 			if len(args) != 2 {
 				return nil, i.rerr(t, "SAGA-R150", "io.write_text(path,text)")

@@ -24,6 +24,7 @@ import (
 func securityCall(t *testing.T, module, name string, args ...Value) Value {
 	t.Helper()
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	v, err := it.callNativeModule(module, name, args, Token{File: "<security-test>", Line: 1, Col: 1})
 	if err != nil {
 		t.Fatalf("%s.%s: %v", module, name, err)
@@ -169,6 +170,7 @@ func TestKVDBCrossProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	v, handled, err := it.callPlatformExpansion("db", "put", []Value{db, key, numberFromInt64(1)}, Token{File: "<db-helper>", Line: 1, Col: 1})
 	if err != nil || !handled {
 		t.Fatalf("put err=%v handled=%v", err, handled)
@@ -195,6 +197,7 @@ func TestKVDBMultiProcessNoLostUpdateAndConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<db-parent>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, h, e := it.callPlatformExpansion("db", name, args, tok)
@@ -314,6 +317,7 @@ func TestKVDBSymlinkWritePersistsToCanonicalTarget(t *testing.T) {
 		t.Fatalf("db path was not canonicalized: %q", db.Path)
 	}
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<symlink-db>", Line: 1, Col: 1}
 	v, err := it.callNativeModule("db", "put", []Value{db, "after", numberFromInt64(2)}, tok)
 	if err != nil {

@@ -12,6 +12,9 @@ func (i *Interpreter) callFFI(name string, args []Value, t Token) (Value, error)
 	if i.UnsafeDepth == 0 {
 		return nil, i.rerr(t, "SAGA-R188", "FFI calls require unsafe { ... }")
 	}
+	if err := i.requireHostUnsafe(); err != nil {
+		return nil, i.rerr(t, "SAGA-R103", err.Error())
+	}
 	if v, handled, err := i.callFFIProfile2(name, args, t); handled {
 		return v, err
 	}
@@ -83,6 +86,9 @@ func annotationStrings(d *FnDecl, name string) ([]string, bool) {
 	return nil, false
 }
 func (i *Interpreter) callExtern(d *FnDecl, args []Value, t Token) (Value, error) {
+	if err := i.requireHostUnsafe(); err != nil {
+		return nil, i.rerr(t, "SAGA-R103", err.Error())
+	}
 	if d.ExternABI != "C" {
 		return nil, i.rerr(t, "SAGA-R190", "only extern \"C\" is supported by the current Expert FFI profile")
 	}

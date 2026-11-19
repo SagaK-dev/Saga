@@ -125,6 +125,26 @@ saga-control-report examples/contest/diff_unsafe_control.saga
   - なぜ拒否されたか、何を直せばよいかを診断できるか。
 - これらは単なる数学ライブラリではなく、言語・ツールチェーンの責務として扱います。
 
+## Goレジストリの運用
+Go版のレジストリは、起動時に署名付きパッケージの検証済みメタデータを読み込み、検索に利用します。公開APIで追加されたパッケージは検索対象へ自動反映されます。外部のアドレスでサーバーを公開する場合、TLS証明書と秘密鍵が必須です。TLSなしで利用できるのはlocalhostなどのループバックアドレスのみです。検索結果は最大200件です。
+
+## Go 実行時のアクセス権限
+
+Go版の `saga-go run` は、標準状態でホストのファイル、データベース、通信、外部プロセスへのアクセスを許可しません。必要な範囲のみ明示します。
+
+```bash
+saga-go run examples/fullstack/file_and_time.saga --allow-read ./data
+saga-go run examples/fullstack/http_once.saga --allow-net api.example.com:443
+```
+
+ネットワーク許可は `--allow-net api.example.com:443` のようにホストとポートを指定でき、`--allow-net '*.example.com:443'` でサブドメインのみ許可できます（ドメイン自体は含みません）。
+
+ファイルの書き込みには `--allow-write`、データベースには `--allow-db`、外部プロセスには `--allow-process` を指定できます。FFI・JITなどホスト上で任意のコード実行につながるネイティブ機能は、信頼できるプログラムに限って `--allow-unsafe-native` を明示します。Sagaソース内の `unsafe` ブロックだけではホスト権限を取得できません。許可したディレクトリの外にはアクセスできません。Goランタイムを組み込む場合も、`NewInterpreter` は制限付きで開始します。信頼済みのホストがコードの実行責任を持つ場合だけ `TrustedHost` を指定してください。
+
+ホストファイルのテキスト読み込みには既定で64 MiBの上限があります。`SAGA_IO_MAX_READ_BYTES` で変更できます。Pythonのバイナリ読み込みにも同じ上限が適用されます。Pythonのファイルコピーはバッファ単位で行い、成功するまでは既存のコピー先を置き換えません。
+
+HTTP通信の既定の最大応答本文は8 MiB、タイムアウトは30秒です。上限は `SAGA_HTTP_MAX_BODY_BYTES` と `SAGA_HTTP_TIMEOUT_MS`（Go）、`SAGA_HTTP_TIMEOUT_SECONDS`（Python）で変更できます。
+
 ## クイックスタート
 
 - リポジトリを取得します。

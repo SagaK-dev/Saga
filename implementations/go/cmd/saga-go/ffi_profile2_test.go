@@ -86,6 +86,7 @@ unsafe {
 	}
 	var out []string
 	it := NewInterpreter(ch, func(s string) { out = append(out, s) })
+	it.TrustedHost = true // The test compiles and loads its own C probe.
 	if e = it.Interpret(stmts); e != nil {
 		t.Fatal(e)
 	}

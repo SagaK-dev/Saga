@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
+from types import SimpleNamespace
 
 from saga import Capabilities, compile_source, run_source
 from saga.errors import TypeCheckError
+from saga.native import NativeFailure
+from saga.stdlib.modules import io_copy
 
 
 class SagaFullStackTests(unittest.TestCase):
@@ -80,6 +84,68 @@ class SagaFullStackTests(unittest.TestCase):
             denied = f'''use io\ntry {{ io.read_text("{root / 'note.txt'}") }} catch error {{ print(error.message) }}'''
             self.assertIn("読み取り権限", self.run_program(denied)[0])
 
+    def test_file_read_limit_and_streamed_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = root / "source.txt"
+            copied = root / "copied.txt"
+            source.write_text("hello world", encoding="utf-8")
+            caps = Capabilities(read_roots=(root,), write_roots=(root,))
+            script = f'''
+            use io
+            try {{ io.read_text("{source}") }}
+            catch error {{ print(error.message) }}
+            try {{ io.read_bytes("{source}") }}
+            catch error {{ print(error.message) }}
+            io.copy("{source}", "{copied}")
+            '''
+            with patch.dict("os.environ", {"SAGA_IO_MAX_READ_BYTES": "4"}):
+                output = self.run_program(script, caps)
+            self.assertEqual(len(output), 2)
+            self.assertTrue(all("上限" in message for message in output))
+            self.assertEqual(copied.read_text(encoding="utf-8"), "hello world")
+
+    def test_copy_failure_keeps_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = root / "large.txt"
+            target = root / "existing.txt"
+            source.write_bytes(b"x" * (70 << 10))
+            target.write_text("original", encoding="utf-8")
+            capabilities = Capabilities(read_roots=(root,), write_roots=(root,))
+            host = SimpleNamespace(capabilities=capabilities)
+            original_open = Path.open
+
+            class InterruptedSource:
+                def __init__(self, handle):
+                    self.handle = handle
+                    self.calls = 0
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return self.handle.__exit__(*args)
+
+                def read(self, size):
+                    self.calls += 1
+                    if self.calls > 1:
+                        raise OSError("simulated read failure")
+                    return self.handle.read(size)
+
+            def open_with_failure(path, mode="r", *args, **kwargs):
+                handle = original_open(path, mode, *args, **kwargs)
+                if path == source and mode == "rb":
+                    return InterruptedSource(handle)
+                return handle
+
+            with patch.object(Path, "open", open_with_failure):
+                with self.assertRaises(NativeFailure):
+                    io_copy(host, [str(source), str(target)])
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "original")
+            self.assertEqual(list(root.glob(".*.copy-*")), [])
+
     def test_time_json_and_crypto(self):
         source = '''
         use time
@@ -147,6 +213,26 @@ class SagaFullStackTests(unittest.TestCase):
         http.stop(server)
         '''
         self.assertEqual(self.run_program(source, caps), ["HTTP \"GET / HTTP/1.1\" 200 -", "200 Saga API"])
+
+    def test_http_server_rejects_oversized_requests(self):
+        caps = Capabilities(net_hosts=("127.0.0.1",))
+        source = """
+        use http
+        fn handle(request: any) -> any {
+            return http.response(200, "unexpected", "text/plain")
+        }
+        let server = http.serve("127.0.0.1", 0, handle)
+        let response = http.post(
+            "http://127.0.0.1:" + text(http.port(server)) + "/",
+            "a request larger than four bytes",
+            "text/plain"
+        )
+        print(http.status(response))
+        http.stop(server)
+        """
+        with patch.dict("os.environ", {"SAGA_HTTP_SERVER_MAX_BODY_BYTES": "4"}):
+            result = self.run_program(source, caps)
+        self.assertTrue(any(line == "413" for line in result), result)
 
     def test_reflection_and_annotations(self):
         source = '''

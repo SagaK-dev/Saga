@@ -45,6 +45,13 @@ Usage: saga <command> [options]
 
 Core:
   run FILE              Check and run Saga source
+    --allow-read PATH   Permit file reads inside PATH
+    --allow-write PATH  Permit file writes inside PATH
+    --allow-db PATH     Permit database access inside PATH
+    --allow-net HOST[:PORT]   Permit a network destination
+    --allow-process     Permit external process execution
+    --allow-unsafe-native  Permit unsafe FFI/JIT with full host authority
+    --allow-device      Permit physical device operations
   check FILE            Type-check without executing
   build INPUT           Build standalone native executable
   build INPUT --target wasm   Build direct WebAssembly module
@@ -281,10 +288,38 @@ Interop exporter:
 		}
 		sagaDiagnosticFormat = "human"
 		allowDevice := false
+		allowProcess := false
+		allowUnsafeNative := false
 		netHosts := []string{}
+		readRoots := []string{}
+		writeRoots := []string{}
+		dbRoots := []string{}
 		for j := 2; j < len(args); j++ {
 			if args[j] == "--diagnostic-format" && j+1 < len(args) {
 				sagaDiagnosticFormat = args[j+1]
+				j++
+				continue
+			}
+			if args[j] == "--allow-unsafe-native" {
+				allowUnsafeNative = true
+				continue
+			}
+			if args[j] == "--allow-process" {
+				allowProcess = true
+				continue
+			}
+			if args[j] == "--allow-read" && j+1 < len(args) {
+				readRoots = append(readRoots, args[j+1])
+				j++
+				continue
+			}
+			if args[j] == "--allow-write" && j+1 < len(args) {
+				writeRoots = append(writeRoots, args[j+1])
+				j++
+				continue
+			}
+			if args[j] == "--allow-db" && j+1 < len(args) {
+				dbRoots = append(dbRoots, args[j+1])
 				j++
 				continue
 			}
@@ -324,6 +359,11 @@ Interop exporter:
 		it := NewInterpreter(c, nil)
 		it.AllowDevice = allowDevice
 		it.NetHosts = append([]string(nil), netHosts...)
+		it.ReadRoots = append([]string(nil), readRoots...)
+		it.WriteRoots = append([]string(nil), writeRoots...)
+		it.DBRoots = append([]string(nil), dbRoots...)
+		it.AllowProcess = allowProcess
+		it.AllowUnsafeNative = allowUnsafeNative
 		if err = it.Interpret(stmts); err != nil {
 			return printDiagnostic(err)
 		}

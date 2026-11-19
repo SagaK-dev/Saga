@@ -22,6 +22,7 @@ func numD(s string) Number { n, _ := newNumber(s, "decimal"); return n }
 
 func TestWebHelpersEscapeRouteAndDocument(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<web>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("web", name, args, tok)
@@ -59,8 +60,8 @@ func TestWebHelpersEscapeRouteAndDocument(t *testing.T) {
 }
 
 func TestSagaHTTPClientPolicyIsExplicitAndOptional(t *testing.T) {
-	if sagaHTTPClient.Timeout != 0 {
-		t.Fatal("standard HTTP client must not impose a language-level timeout")
+	if sagaHTTPClient.Timeout != defaultHTTPTimeout {
+		t.Fatalf("HTTP default timeout = %s, want %s", sagaHTTPClient.Timeout, defaultHTTPTimeout)
 	}
 	tr, ok := sagaHTTPClient.Transport.(*http.Transport)
 	if !ok || tr.Proxy != nil {
@@ -77,16 +78,24 @@ func TestSagaHTTPClientPolicyIsExplicitAndOptional(t *testing.T) {
 	}
 }
 
-func TestStandardHTTPBodyLimitIsOptionalHostPolicy(t *testing.T) {
+func TestStandardHTTPBodyLimitHasSafeDefault(t *testing.T) {
 	body := strings.Repeat("x", 17<<20)
 	t.Setenv("SAGA_HTTP_MAX_BODY_BYTES", "")
+	if _, err := readStandardHTTPText(strings.NewReader(body)); err == nil {
+		t.Fatal("default response body limit was not enforced")
+	}
+	t.Setenv("SAGA_HTTP_MAX_BODY_BYTES", fmt.Sprint(18<<20))
 	got, err := readStandardHTTPText(strings.NewReader(body))
 	if err != nil || len(got) != len(body) {
-		t.Fatalf("legacy fixed body ceiling returned: len=%d err=%v", len(got), err)
+		t.Fatalf("configured body limit rejected valid response: len=%d err=%v", len(got), err)
 	}
 	t.Setenv("SAGA_HTTP_MAX_BODY_BYTES", fmt.Sprint(8<<20))
 	if _, err := readStandardHTTPText(strings.NewReader(body)); err == nil {
 		t.Fatal("administrator body limit was not enforced")
+	}
+	t.Setenv("SAGA_HTTP_MAX_BODY_BYTES", "9223372036854775807")
+	if _, err := readStandardHTTPText(strings.NewReader("short")); err == nil {
+		t.Fatal("a body limit that overflows max+1 must be rejected")
 	}
 }
 
@@ -114,6 +123,7 @@ func TestHTTPServerRejectsInvalidUTF8AndHasReadBounds(t *testing.T) {
 
 func TestHTTPRespondRejectsHeaderInjection(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http>", Line: 1, Col: 1}
 	done := make(chan struct{})
 	req := &HTTPRequestValue{response: make(chan sagaHTTPResponse, 1), ctxDone: done}
@@ -143,6 +153,7 @@ func TestHTTPResponseAckWinsConcurrentContextClose(t *testing.T) {
 
 func TestHTTPServerRoundTrip(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("http", name, args, tok)
@@ -206,6 +217,7 @@ func TestHTTPServerRoundTrip(t *testing.T) {
 
 func TestDBTransactionsCommitRollbackAndConflict(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<db>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("db", name, args, tok)
@@ -251,6 +263,7 @@ func TestDBTransactionsCommitRollbackAndConflict(t *testing.T) {
 
 func TestCPU3DCubeRasterizationAndDepth(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<3d>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("game", name, args, tok)
@@ -324,6 +337,7 @@ func TestWebBundleRunsSagaSH3InJavaScript(t *testing.T) {
 
 func TestHTTPAcceptUnblocksOnClose(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http-close>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("http", name, args, tok)
@@ -353,6 +367,7 @@ func TestHTTPAcceptUnblocksOnClose(t *testing.T) {
 
 func TestOBJMeshLoadAndRender(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<obj>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("game", name, args, tok)
