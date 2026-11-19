@@ -353,10 +353,10 @@ func packageManifestIdentity(raw []byte) (string, string, error) {
 		if key == "name" || key == "version" {
 			seenIdentity[key] = true
 		}
-		value := strings.TrimSpace(line[eq+1:])
-		if i := strings.Index(value, " #"); i >= 0 {
-			value = strings.TrimSpace(value[:i])
+		if key != "name" && key != "version" {
+			continue
 		}
+		value := trimTomlComment(line[eq+1:])
 		q, err := parseTomlString(value)
 		if err != nil {
 			return "", "", fmt.Errorf("saga.toml %s: %w", key, err)

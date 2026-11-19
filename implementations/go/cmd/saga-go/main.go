@@ -45,6 +45,12 @@ Usage: saga <command> [options]
 
 Core:
   run FILE              Check and run Saga source
+    --allow-read PATH   Permit file reads inside PATH
+    --allow-write PATH  Permit file writes inside PATH
+    --allow-db PATH     Permit database access inside PATH
+    --allow-net HOST[:PORT]   Permit a network destination
+    --allow-process     Permit external process execution
+    --allow-device      Permit physical device operations
   check FILE            Type-check without executing
   build INPUT           Build standalone native executable
   build INPUT --target wasm   Build direct WebAssembly module
