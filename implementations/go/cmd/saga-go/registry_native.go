@@ -581,9 +581,29 @@ func persistRegistryPackage(root, name, version string, data []byte, sig package
 	return false, nil
 }
 
+func registryLoopbackBind(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func runRegistryServer(root, addr, tlsCert, tlsKey string) error {
+	if tlsCert == "" && tlsKey == "" && !registryLoopbackBind(addr) {
+		return fmt.Errorf("registry publishing requires TLS on non-loopback addresses")
+	}
 	if e := os.MkdirAll(root, 0755); e != nil {
 		return e
+	}
+	searchIndex, err := newRegistrySearchIndex(root)
+	if err != nil {
+		return err
 	}
 	secureHeaders := func(w http.ResponseWriter) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -637,6 +657,9 @@ func runRegistryServer(root, addr, tlsCert, tlsKey string) error {
 			}
 			publishMu.Lock()
 			idem, err := persistRegistryPackage(root, name, version, body, sig)
+			if err == nil {
+				searchIndex.recordPublished(name, version, body, sig)
+			}
 			publishMu.Unlock()
 			if err != nil {
 				if strings.Contains(err.Error(), "already exists") {
@@ -684,43 +707,8 @@ func runRegistryServer(root, addr, tlsCert, tlsKey string) error {
 			http.Error(w, "method", 405)
 			return
 		}
-		q := strings.ToLower(r.URL.Query().Get("q"))
-		out := []map[string]any{}
-		names, _ := os.ReadDir(root)
-		for _, ne := range names {
-			if !ne.IsDir() || (q != "" && !strings.Contains(strings.ToLower(ne.Name()), q)) {
-				continue
-			}
-			vers, _ := os.ReadDir(filepath.Join(root, ne.Name()))
-			for _, ve := range vers {
-				if !ve.IsDir() {
-					continue
-				}
-				dir := filepath.Join(root, ne.Name(), ve.Name())
-				sig, er := readSignature(filepath.Join(dir, "package.sig"))
-				if er != nil {
-					continue
-				}
-				data, er := readRegistryFile(filepath.Join(dir, "package.sagapkg"), registryMaxPackageBytes)
-				if er != nil || verifyPackageSignature(data, sig) != nil {
-					continue
-				}
-				n, v, er := packageIdentity(data)
-				if er != nil || n != ne.Name() || v != ve.Name() {
-					continue
-				}
-				out = append(out, map[string]any{"name": ne.Name(), "version": ve.Name(), "sha256": sig.SHA256, "size": len(data), "publisher_fingerprint": sig.Fingerprint})
-			}
-		}
-		sort.Slice(out, func(i, j int) bool {
-			ni := out[i]["name"].(string)
-			nj := out[j]["name"].(string)
-			if ni == nj {
-				return out[i]["version"].(string) < out[j]["version"].(string)
-			}
-			return ni < nj
-		})
-		_ = json.NewEncoder(w).Encode(map[string]any{"packages": out})
+		q := r.URL.Query().Get("q")
+		_ = json.NewEncoder(w).Encode(map[string]any{"packages": searchIndex.search(q)})
 	})
 	// Registry Protocol v1 is intentionally singular.  The 0.25 JSON/base64
 	// endpoints are hard-disabled so reviewers and clients cannot accidentally

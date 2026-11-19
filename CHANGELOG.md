@@ -3,6 +3,7 @@
 - Required a separate host grant for FFI, extern C, and executable JIT features. An `unsafe` source block alone does not authorize native execution.
 - Enforced explicit read, write, database, network, and process grants when the Go CLI runs hosted Saga code. The same checks cover `app.invoke` filesystem, process, and HTTP operations, so indirect host calls cannot bypass the policy. Trusted embedding hosts must opt in explicitly.
 - Added bounds to hosted HTTP responses and to the Python HTTP server's request bodies, connections, and read waits. Limits can be tuned through environment variables.
+- Cached verified registry metadata for Go search, capped search responses at 200 entries, and required TLS for non-loopback registry binds.
 - Fixed a Go registry search bug that could display a package under the wrong name or version. Reject linked installation destinations in both package managers.
 - Checked annotation-processor output paths as a group before writing, and staged individual output files for atomic replacement.
 - Required an explicit wildcard network grant for Go's unqualified UDP socket bind, rather than accepting an unrelated host allowlist entry.
