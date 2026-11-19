@@ -34,6 +34,18 @@ func TestHostPolicyIsDeniedByDefault(t *testing.T) {
 	}
 }
 
+func TestUDPWildcardBindRequiresWildcardGrant(t *testing.T) {
+	i := NewInterpreter(NewChecker(), func(string) {})
+	i.NetHosts = []string{"127.0.0.1:5353"}
+	if err := i.checkHostAccess("net", "udp", nil); err == nil {
+		t.Fatal("a host-scoped grant must not authorize a wildcard UDP bind")
+	}
+	i.NetHosts = []string{"*"}
+	if err := i.checkHostAccess("net", "udp", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestHostPolicyRespectsSpecificGrants(t *testing.T) {
 	i := NewInterpreter(NewChecker(), func(string) {})
 	root := t.TempDir()

@@ -143,8 +143,15 @@ func (i *Interpreter) checkHostAccess(module, name string, args []Value) error {
 		case "udp_send":
 			return i.requireHostEndpoint(args, 2, 3)
 		case "udp":
-			if !i.TrustedHost && len(i.NetHosts) == 0 {
-				return fmt.Errorf("network access denied; use --allow-net HOST")
+			// udp() has no address argument and binds an unspecified local
+			// interface. A host-scoped grant must not authorize that bind.
+			if !i.TrustedHost {
+				for _, grant := range i.NetHosts {
+					if strings.TrimSpace(grant) == "*" {
+						return nil
+					}
+				}
+				return fmt.Errorf("unrestricted UDP bind denied; use --allow-net *")
 			}
 		}
 	case "http":

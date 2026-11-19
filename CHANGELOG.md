@@ -4,6 +4,8 @@
 - Added bounds to hosted HTTP responses and to the Python HTTP server's request bodies, connections, and read waits. Limits can be tuned through environment variables.
 - Fixed a Go registry search bug that could display a package under the wrong name or version. Reject linked installation destinations in both package managers.
 - Checked annotation-processor output paths as a group before writing, and staged individual output files for atomic replacement.
+- Required an explicit wildcard network grant for Go's unqualified UDP socket bind, rather than accepting an unrelated host allowlist entry.
+- Added rollback of generated processor outputs when a later file replacement fails (best effort, not a crash-safe multi-file transaction).
 - Added regression tests for rejected host operations and oversized HTTP requests.
 
 # Saga 0.53.0 (development)

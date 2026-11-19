@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -64,9 +65,12 @@ def write_outputs(output_dir: Path, files: dict[str, str]) -> None:
             raise ProcessorSandboxError(f"processor output paths overlap: {target}")
 
     root.mkdir(parents=True, exist_ok=True)
-    # Assemble each file away from its destination, then atomically replace it.
-    # This prevents truncating existing output if encoding or writing fails.
-    prepared: list[tuple[Path, Path]] = []
+
+    # Stage all output before replacing anything. Existing files are backed up
+    # so a failed later rename can restore earlier replacements.
+    prepared: list[tuple[Path, Path, Path | None]] = []
+    replaced: list[tuple[Path, Path | None]] = []
+    restore_failed: set[Path] = set()
     try:
         for target, content in planned:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -75,12 +79,39 @@ def write_outputs(output_dir: Path, files: dict[str, str]) -> None:
                 prefix=f".{target.name}.", delete=False,
             ) as handle:
                 staged = Path(handle.name)
-                prepared.append((staged, target))
+                prepared.append((staged, target, None))
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-        for staged, target in prepared:
+
+        for index, (staged, target, _) in enumerate(prepared):
+            backup = None
+            if target.exists():
+                with tempfile.NamedTemporaryFile(
+                    dir=target.parent, prefix=f".{target.name}.backup-",
+                    delete=False,
+                ) as handle:
+                    backup = Path(handle.name)
+                prepared[index] = (staged, target, backup)
+                shutil.copy2(target, backup)
+
+        for staged, target, backup in prepared:
             os.replace(staged, target)
+            replaced.append((target, backup))
+    except Exception:
+        # Rollback is best effort if the filesystem itself is failing. Retain
+        # any backup that could not be restored instead of discarding the data.
+        for target, backup in reversed(replaced):
+            try:
+                if backup is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, target)
+            except OSError:
+                restore_failed.add(target)
+        raise
     finally:
-        for staged, _ in prepared:
+        for staged, target, backup in prepared:
             staged.unlink(missing_ok=True)
+            if backup is not None and target not in restore_failed:
+                backup.unlink(missing_ok=True)
