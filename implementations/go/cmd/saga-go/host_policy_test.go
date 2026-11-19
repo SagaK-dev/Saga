@@ -77,6 +77,25 @@ func TestUDPWildcardBindRequiresWildcardGrant(t *testing.T) {
 	}
 }
 
+func TestHostedFileReadLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SAGA_IO_MAX_READ_BYTES", "4")
+	if _, err := readHostedFileText(path); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("oversized read should fail: %v", err)
+	}
+	t.Setenv("SAGA_IO_MAX_READ_BYTES", "5")
+	if got, err := readHostedFileText(path); err != nil || got != "hello" {
+		t.Fatalf("bounded read: got %q, err %v", got, err)
+	}
+	t.Setenv("SAGA_IO_MAX_READ_BYTES", "9223372036854775807")
+	if _, err := readHostedFileText(path); err == nil {
+		t.Fatal("overflowing host read limit must be rejected")
+	}
+}
+
 func TestNetworkHostPatternsRequireExactSuffixAndPort(t *testing.T) {
 	i := NewInterpreter(NewChecker(), func(string) {})
 	i.NetHosts = []string{"*.example.com:443", "[::1]:8080"}

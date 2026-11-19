@@ -70,6 +70,35 @@ func readStandardHTTPText(r io.Reader) (string, error) {
 	return string(b), nil
 }
 
+const defaultFileReadLimit = 64 << 20
+
+func readHostedFileText(path string) (string, error) {
+	max := int64(defaultFileReadLimit)
+	if raw := strings.TrimSpace(os.Getenv("SAGA_IO_MAX_READ_BYTES")); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 || value == 1<<63-1 {
+			return "", fmt.Errorf("SAGA_IO_MAX_READ_BYTES must be a positive integer below MaxInt64")
+		}
+		max = value
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	b, err := io.ReadAll(io.LimitReader(file, max+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(b)) > max {
+		return "", fmt.Errorf("file exceeds host read limit %d bytes", max)
+	}
+	if !validUTF8String(string(b)) {
+		return "", fmt.Errorf("file is not valid UTF-8")
+	}
+	return string(b), nil
+}
+
 var sagaGameInputMu sync.Mutex
 var sagaGameInputReader = bufio.NewReader(os.Stdin)
 
@@ -466,14 +495,11 @@ func (i *Interpreter) callNativeModule(module, name string, args []Value, t Toke
 			if !ok {
 				return nil, i.rerr(t, "SAGA-R150", "path must be text")
 			}
-			b, e := os.ReadFile(p)
+			content, e := readHostedFileText(p)
 			if e != nil {
 				return nil, i.rerr(t, "SAGA-R160", e.Error())
 			}
-			if !validUTF8String(string(b)) {
-				return nil, i.rerr(t, "SAGA-R160", "file is not valid UTF-8")
-			}
-			return string(b), nil
+			return content, nil
 		case "write_text":
 			if len(args) != 2 {
 				return nil, i.rerr(t, "SAGA-R150", "io.write_text(path,text)")

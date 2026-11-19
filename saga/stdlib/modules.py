@@ -370,11 +370,27 @@ def console_write(interpreter, args):
 
 # ---------- File and binary I/O ----------
 
+_DEFAULT_FILE_READ_LIMIT = 64 << 20
+
+
+def _read_host_file(path: Path) -> bytes:
+    limit = _host_positive_int("SAGA_IO_MAX_READ_BYTES") or _DEFAULT_FILE_READ_LIMIT
+    with path.open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise NativeFailure(f"ファイルが読み取り上限 {limit} バイトを超えました: {path}")
+    return data
+
+
+
+
 @native("io", "read_text", (TEXT,), TEXT)
 def io_read_text(interpreter, args):
     path = interpreter.capabilities.require_read(_as_text(args[0]))
     try:
-        return path.read_text(encoding="utf-8")
+        return _read_host_file(path).decode("utf-8")
+    except NativeFailure:
+        raise
     except UnicodeDecodeError as exc:
         raise NativeFailure(f"UTF-8テキストとして読めません: {path}: {exc}") from exc
     except OSError as exc:
@@ -408,7 +424,9 @@ def io_append_text(interpreter, args):
 def io_read_bytes(interpreter, args):
     path = interpreter.capabilities.require_read(_as_text(args[0]))
     try:
-        return path.read_bytes()
+        return _read_host_file(path)
+    except NativeFailure:
+        raise
     except OSError as exc:
         raise NativeFailure(f"バイナリファイルを読めません: {path}: {exc}") from exc
 
@@ -469,8 +487,12 @@ def io_copy(interpreter, args):
     src = interpreter.capabilities.require_read(_as_text(args[0]))
     dst = interpreter.capabilities.require_write(_as_text(args[1]))
     try:
+        if src == dst:
+            return None
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_bytes(src.read_bytes())
+        with src.open("rb") as source, dst.open("wb") as destination:
+            while chunk := source.read(64 << 10):
+                destination.write(chunk)
     except OSError as exc:
         raise NativeFailure(f"ファイルをコピーできません: {src} -> {dst}: {exc}") from exc
     return None

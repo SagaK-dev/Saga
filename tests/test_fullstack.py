@@ -81,6 +81,27 @@ class SagaFullStackTests(unittest.TestCase):
             denied = f'''use io\ntry {{ io.read_text("{root / 'note.txt'}") }} catch error {{ print(error.message) }}'''
             self.assertIn("読み取り権限", self.run_program(denied)[0])
 
+    def test_file_read_limit_and_streamed_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            source = root / "source.txt"
+            copied = root / "copied.txt"
+            source.write_text("hello world", encoding="utf-8")
+            caps = Capabilities(read_roots=(root,), write_roots=(root,))
+            script = f'''
+            use io
+            try {{ io.read_text("{source}") }}
+            catch error {{ print(error.message) }}
+            try {{ io.read_bytes("{source}") }}
+            catch error {{ print(error.message) }}
+            io.copy("{source}", "{copied}")
+            '''
+            with patch.dict("os.environ", {"SAGA_IO_MAX_READ_BYTES": "4"}):
+                output = self.run_program(script, caps)
+            self.assertEqual(len(output), 2)
+            self.assertTrue(all("上限" in message for message in output))
+            self.assertEqual(copied.read_text(encoding="utf-8"), "hello world")
+
     def test_time_json_and_crypto(self):
         source = '''
         use time
