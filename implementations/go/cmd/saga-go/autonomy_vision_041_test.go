@@ -87,7 +87,7 @@ print(drone.allocate(a,[0.5,0.02,-0.01,0.01]))
 
 func Test041UDPReceiveFromJSON(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
-	it.NetHosts = []string{"127.0.0.1"}
+	it.NetHosts = []string{"*"}
 	tok := Token{}
 	v, err := it.callNativeModule("net", "udp", nil, tok)
 	if err != nil {
