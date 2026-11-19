@@ -330,6 +330,7 @@ func packageManifestIdentity(raw []byte) (string, string, error) {
 	vals := map[string]string{}
 	seenIdentity := map[string]bool{}
 	inProject := false
+	seenProject := false
 	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -337,6 +338,12 @@ func packageManifestIdentity(raw []byte) (string, string, error) {
 		}
 		if strings.HasPrefix(line, "[") {
 			inProject = line == "[project]"
+			if inProject {
+				if seenProject {
+					return "", "", fmt.Errorf("saga.toml contains duplicate [project] table")
+				}
+				seenProject = true
+			}
 			continue
 		}
 		if !inProject {

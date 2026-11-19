@@ -33,6 +33,14 @@ func TestProjectManifestAcceptsLiteralStringsAndUnknownMetadata(t *testing.T) {
 	}
 }
 
+func TestRegistryManifestRejectsRepeatedProjectTable(t *testing.T) {
+	raw := []byte("[project]\nname='sample'\n[other]\nvalue=1\n[project]\nversion='1.0.0'\n")
+	if _, _, err := packageManifestIdentity(raw); err == nil ||
+		!strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("duplicated project table must be rejected: %v", err)
+	}
+}
+
 func TestRegistryManifestIgnoresUnrelatedTOMLTypes(t *testing.T) {
 	name, version, err := packageManifestIdentity([]byte("[project]\nname='sample'\nversion='1.0.0'\nmetadata=true\n"))
 	if err != nil || name != "sample" || version != "1.0.0" {
