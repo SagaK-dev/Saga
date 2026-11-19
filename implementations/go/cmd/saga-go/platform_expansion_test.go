@@ -22,6 +22,7 @@ func numD(s string) Number { n, _ := newNumber(s, "decimal"); return n }
 
 func TestWebHelpersEscapeRouteAndDocument(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<web>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("web", name, args, tok)
@@ -59,8 +60,8 @@ func TestWebHelpersEscapeRouteAndDocument(t *testing.T) {
 }
 
 func TestSagaHTTPClientPolicyIsExplicitAndOptional(t *testing.T) {
-	if sagaHTTPClient.Timeout != 0 {
-		t.Fatal("standard HTTP client must not impose a language-level timeout")
+	if sagaHTTPClient.Timeout != defaultHTTPTimeout {
+		t.Fatalf("HTTP default timeout = %s, want %s", sagaHTTPClient.Timeout, defaultHTTPTimeout)
 	}
 	tr, ok := sagaHTTPClient.Transport.(*http.Transport)
 	if !ok || tr.Proxy != nil {
@@ -118,6 +119,7 @@ func TestHTTPServerRejectsInvalidUTF8AndHasReadBounds(t *testing.T) {
 
 func TestHTTPRespondRejectsHeaderInjection(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http>", Line: 1, Col: 1}
 	done := make(chan struct{})
 	req := &HTTPRequestValue{response: make(chan sagaHTTPResponse, 1), ctxDone: done}
@@ -147,6 +149,7 @@ func TestHTTPResponseAckWinsConcurrentContextClose(t *testing.T) {
 
 func TestHTTPServerRoundTrip(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("http", name, args, tok)
@@ -210,6 +213,7 @@ func TestHTTPServerRoundTrip(t *testing.T) {
 
 func TestDBTransactionsCommitRollbackAndConflict(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<db>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("db", name, args, tok)
@@ -255,6 +259,7 @@ func TestDBTransactionsCommitRollbackAndConflict(t *testing.T) {
 
 func TestCPU3DCubeRasterizationAndDepth(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<3d>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("game", name, args, tok)
@@ -328,6 +333,7 @@ func TestWebBundleRunsSagaSH3InJavaScript(t *testing.T) {
 
 func TestHTTPAcceptUnblocksOnClose(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<http-close>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("http", name, args, tok)
@@ -357,6 +363,7 @@ func TestHTTPAcceptUnblocksOnClose(t *testing.T) {
 
 func TestOBJMeshLoadAndRender(t *testing.T) {
 	it := NewInterpreter(NewChecker(), func(string) {})
+	it.TrustedHost = true
 	tok := Token{File: "<obj>", Line: 1, Col: 1}
 	call := func(name string, args ...Value) Value {
 		v, e := it.callNativeModule("game", name, args, tok)

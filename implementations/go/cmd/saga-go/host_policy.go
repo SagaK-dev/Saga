@@ -154,6 +154,37 @@ func (i *Interpreter) checkHostAccess(module, name string, args []Value) error {
 		case "listen":
 			return i.requireHostEndpoint(args, 0, 1)
 		}
+	case "app":
+		if name != "invoke" || len(args) != 2 {
+			break
+		}
+		operation, ok := args[0].(string)
+		if !ok {
+			break
+		}
+		payload, ok := args[1].(string)
+		if !ok {
+			break
+		}
+		values, err := appJSON(payload)
+		if err != nil {
+			break // The app adapter diagnoses malformed input.
+		}
+		switch operation {
+		case "filesystem.read_text", "filesystem.exists", "filesystem.list", "filesystem.stat":
+			return i.requireHostPath(appString(values, "path"), i.ReadRoots, "--allow-read")
+		case "filesystem.write_text", "filesystem.remove", "filesystem.mkdir":
+			return i.requireHostPath(appString(values, "path"), i.WriteRoots, "--allow-write")
+		case "filesystem.rename":
+			if err := i.requireHostPath(appString(values, "from"), i.WriteRoots, "--allow-write"); err != nil {
+				return err
+			}
+			return i.requireHostPath(appString(values, "to"), i.WriteRoots, "--allow-write")
+		case "process.run":
+			return i.requireHostProcess()
+		case "network.http_get":
+			return i.requireHostURL([]Value{appString(values, "url")})
+		}
 	case "security":
 		switch name {
 		case "file_sha256":
