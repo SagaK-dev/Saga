@@ -8,6 +8,7 @@ Potentially destructive/live checks are opt-in through SAGA_*_LIVE variables.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -137,8 +138,15 @@ def qualify_aws() -> dict:
         out=[]
         source = f'use cloud\nlet c = cloud.aws_client("sts", "{region}")\nlet r = cloud.call(c, "get_caller_identity", map_of())\nprint(map_get(r, "Arn", "missing"))'
         run_source(source, output=out.append, capabilities=Capabilities(allow_cloud=True))
-        if not out or out[-1] == "missing": raise RuntimeError("STS identity missing")
-        return gate("aws-live-account", "PASS", detail=f"STS GetCallerIdentity through Saga: {out[-1]}")
+        if not out or not out[-1].startswith("arn:") or out[-1] == "missing":
+            raise RuntimeError("STS identity missing or malformed")
+        # The public workflow artifact must not expose a cloud account ID or
+        # full principal ARN. The administrator can compare this fingerprint
+        # with the expected role locally.
+        principal_hash = hashlib.sha256(out[-1].encode("utf-8")).hexdigest()
+        return gate("aws-live-account", "PASS",
+                    detail="STS GetCallerIdentity through Saga succeeded (principal redacted)",
+                    evidence={"principal_sha256": principal_hash, "region": region})
     except Exception as exc:
         return gate("aws-live-account", "FAIL", reason=f"{type(exc).__name__}: {exc}")
 
