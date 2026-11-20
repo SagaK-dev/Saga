@@ -31,6 +31,8 @@
 
 実GPU・USB/Bluetoothゲームパッド・GPIOおよびAWS実環境の検証は通常CIとは別です。手動実行方法、必須の合格判定と証拠の保存については、[実環境検証の手順](docs/live-qualification-operations.md)を参照してください。未実施の検証は合格扱いにしません。
 
+mainブランチの保護設定は[管理者向け手順](docs/MAIN_BRANCH_PROTECTION.md)と[設定テンプレート](.github/rulesets/main-protection.json)を参照してください。テンプレートはGitHubにコミットするだけでは有効にならず、リポジトリ管理者による適用が必要です。
+
 ## 60秒で分かる Saga
 
 - 周期制御コードでは、時間契約をソースコード上に直接記述できます。
