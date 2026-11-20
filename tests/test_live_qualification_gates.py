@@ -127,7 +127,7 @@ class LiveQualificationEvidenceTest(unittest.TestCase):
                  "SAGA_AWS_EXPECTED_ROLE_ARN": "arn:aws:iam::123456789012:role/saga-live-qualification",
              }):
             data = platform_qualification.qualify_aws()
-        self.assertEqual(data["status"], "PASS")
+        self.assertEqual(data["status"], "PASS", data)
         self.assertEqual(data["evidence"]["principal_sha256"], hashlib.sha256(ARN.encode()).hexdigest())
         self.assertIs(data["evidence"]["approved_role_verified"], True)
         self.assertNotIn("123456789012", json.dumps(data))
