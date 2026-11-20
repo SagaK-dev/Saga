@@ -94,6 +94,7 @@ jobs:
         run: python tools/platform_qualification_current.py --output validation/aws-live.json
         env:
           SAGA_AWS_LIVE: '1'
+          SAGA_AWS_EXPECTED_ROLE_ARN: ${{ vars.SAGA_AWS_QUALIFICATION_ROLE_ARN }}
           AWS_REGION: ${{ vars.SAGA_AWS_QUALIFICATION_REGION || 'us-east-1' }}
       - name: Require successful STS identity evidence
         if: always()

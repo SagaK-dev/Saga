@@ -80,12 +80,33 @@ class LiveQualificationEvidenceTest(unittest.TestCase):
     def test_aws_requires_redacted_identity(self):
         hash_value = hashlib.sha256(ARN.encode()).hexdigest()
         record = inspect_report(
-            report(("aws-live-account", "PASS"), evidence={"principal_sha256": hash_value}),
+            report(("aws-live-account", "PASS"), evidence={"principal_sha256": hash_value, "approved_role_verified": True}),
             "aws", environment(),
         )
         self.assertEqual(record["status"], "PASS")
         self.assertEqual(record["cloud_evidence"]["principal_sha256"], hash_value)
         self.assertNotIn("123456789012", json.dumps(record))
+
+    def test_aws_unverified_role_is_incomplete(self):
+        digest = hashlib.sha256(ARN.encode()).hexdigest()
+        data = report(("aws-live-account", "PASS"), evidence={"principal_sha256": digest})
+        receipt = inspect_report(data, "aws", environment())
+        self.assertEqual(receipt["status"], "INCOMPLETE")
+        self.assertTrue(any("approved OIDC role" in x for x in receipt["problems"]))
+
+    def test_cloud_rejects_different_assumed_role(self):
+        def fake_run_source(_source, *, output, **_kwargs):
+            output.append(ARN)
+
+        with patch.object(platform_qualification, "_module_available", return_value=True), \
+             patch("saga.api.run_source", side_effect=fake_run_source), \
+             patch.dict("os.environ", {
+                 "SAGA_AWS_LIVE": "1",
+                 "SAGA_AWS_EXPECTED_ROLE_ARN": "arn:aws:iam::123456789012:role/unapproved-role",
+             }):
+            data = platform_qualification.qualify_aws()
+        self.assertEqual(data["status"], "FAIL")
+        self.assertNotIn("123456789012", json.dumps(data))
 
     def test_missing_sha_or_duplicate_gates_fail(self):
         data = self.physical()
@@ -101,10 +122,14 @@ class LiveQualificationEvidenceTest(unittest.TestCase):
 
         with patch.object(platform_qualification, "_module_available", return_value=True), \
              patch("saga.api.run_source", side_effect=fake_run_source), \
-             patch.dict("os.environ", {"SAGA_AWS_LIVE": "1"}):
+             patch.dict("os.environ", {
+                 "SAGA_AWS_LIVE": "1",
+                 "SAGA_AWS_EXPECTED_ROLE_ARN": "arn:aws:iam::123456789012:role/saga-live-qualification",
+             }):
             data = platform_qualification.qualify_aws()
         self.assertEqual(data["status"], "PASS")
         self.assertEqual(data["evidence"]["principal_sha256"], hashlib.sha256(ARN.encode()).hexdigest())
+        self.assertIs(data["evidence"]["approved_role_verified"], True)
         self.assertNotIn("123456789012", json.dumps(data))
         self.assertNotIn(ARN, json.dumps(data))
 

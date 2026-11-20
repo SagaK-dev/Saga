@@ -62,10 +62,12 @@ signatures outside the workflow as needed.
    and `validation/aws-live-receipt.json`. Verify the expected run/SHA and
    `aws-live-account = PASS`. The workflow explicitly fails if the role is
    not set or if STS identity validation did not complete.
-5. Compare the returned principal with the approved role **without publishing
-   the account identifier**. The report and receipt contain an SHA-256 digest
-   of the STS ARN rather than the ARN itself; keep any account-level identity
-   comparison in the authorized AWS administration records.
+5. The Saga qualification verifies the assumed-role principal's partition,
+   account and role name against the configured approved IAM role ARN before
+   returning `PASS`. Review the configured role trust policy independently.
+   **Do not publish account identifiers**: the report and receipt contain a
+   SHA-256 digest of the STS ARN, never the full principal ARN. Store any
+   additional account-level comparison in authorized administration records.
 
 A green software-only CI workflow **never** means AWS live validation passed.
 

@@ -67,8 +67,14 @@ def inspect_report(report: object, mode: str, environ: dict[str, str]) -> dict:
         principal_hash = evidence.get("principal_sha256") if isinstance(evidence, dict) else None
         if not isinstance(principal_hash, str) or SHA256_RE.fullmatch(principal_hash) is None:
             problems.append("missing redacted STS principal identity evidence")
+        approved_role_verified = evidence.get("approved_role_verified") is True if isinstance(evidence, dict) else False
+        if not approved_role_verified:
+            problems.append("STS principal was not verified against the approved OIDC role")
         # Never include the raw AWS principal ARN or credentials in this receipt.
-        declaration = {"principal_sha256": principal_hash if isinstance(principal_hash, str) else ""}
+        declaration = {
+            "principal_sha256": principal_hash if isinstance(principal_hash, str) else "",
+            "approved_role_verified": approved_role_verified,
+        }
     else:
         confirmed = environ.get("SAGA_PHYSICAL_OPERATOR_CONFIRMED", "").lower() == "true"
         gpu = environ.get("SAGA_PHYSICAL_GPU_DRIVER", "").strip()
