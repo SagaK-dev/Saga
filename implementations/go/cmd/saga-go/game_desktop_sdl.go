@@ -474,7 +474,10 @@ func desktopGamepadButton(h uintptr, button string) (out bool, err error) {
 	if !ok {
 		return false, fmt.Errorf("unknown gamepad button %q", button)
 	}
-	desktopOnThread(func() { out = C.SDL_GameControllerGetButton((*C.SDL_GameController)(unsafe.Pointer(h)), C.int(n)) != 0 })
+	desktopOnThread(func() {
+		C.SDL_PumpEvents()
+		out = C.SDL_GameControllerGetButton((*C.SDL_GameController)(unsafe.Pointer(h)), C.int(n)) != 0
+	})
 	return
 }
 func desktopGamepadAxis(h uintptr, axis string) (out float64, err error) {
@@ -487,6 +490,7 @@ func desktopGamepadAxis(h uintptr, axis string) (out float64, err error) {
 		return 0, fmt.Errorf("unknown gamepad axis %q", axis)
 	}
 	desktopOnThread(func() {
+		C.SDL_PumpEvents()
 		v := int16(C.SDL_GameControllerGetAxis((*C.SDL_GameController)(unsafe.Pointer(h)), C.int(n)))
 		if v < 0 {
 			out = float64(v) / 32768.0

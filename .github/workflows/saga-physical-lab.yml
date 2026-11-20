@@ -41,6 +41,18 @@ jobs:
             echo "::error::Physical lab may only execute reviewed main"
             exit 1
           fi
+      - name: Require operator confirmation before accessing devices
+        shell: bash
+        env:
+          OPERATOR_CONFIRMED: ${{ inputs.operator_confirmed }}
+          GPU_DRIVER: ${{ inputs.gpu_driver }}
+          GAMEPAD_ID: ${{ inputs.gamepad_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$OPERATOR_CONFIRMED" != "true" || -z "${GPU_DRIVER//[[:space:]]/}" || -z "${GAMEPAD_ID//[[:space:]]/}" ]]; then
+            echo "::error::An operator must confirm a real GPU, its driver and a physical gamepad before starting device tests"
+            exit 1
+          fi
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -55,6 +67,7 @@ jobs:
         run: python tools/platform_qualification_current.py --output validation/physical-lab.json
         env:
           SAGA_PHYSICAL_GAMEPAD: '1'
+          SAGA_VULKAN_REAL_DEVICE_ONLY: '1'
           SAGA_GPIO_LIVE: ${{ vars.SAGA_GPIO_LIVE }}
           SAGA_GPIO_OUTPUT_PIN: ${{ vars.SAGA_GPIO_OUTPUT_PIN }}
       - name: Require physical gates and record operator declaration
