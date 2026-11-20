@@ -56,7 +56,7 @@ def qualify_vulkan() -> dict:
     # physical GPU.  A system/physical ICD can be forced through the environment.
     swift = Path("/usr/lib/chromium/libvk_swiftshader.so")
     tmp_icd = None
-    if not env.get("VK_ICD_FILENAMES") and swift.exists():
+    if not env.get("VK_ICD_FILENAMES") and swift.exists() and env.get("SAGA_VULKAN_REAL_DEVICE_ONLY") != "1":
         fd, name = tempfile.mkstemp(prefix="saga-swiftshader-", suffix=".json")
         os.close(fd); tmp_icd = Path(name)
         tmp_icd.write_text(json.dumps({"file_format_version":"1.0.0","ICD":{"library_path":str(swift),"api_version":"1.3.0"}}))
@@ -242,7 +242,9 @@ def qualify_mobile_and_os() -> list[dict]:
                 if rc != 0:
                     gamepad = gate("physical-gamepad", "FAIL", reason=build_out[-1600:])
                 else:
-                    rc, out = run([str(binary), "run", str(ROOT/"validation/gamepad/physical_gamepad.saga")], timeout=30)
+                    gamepad_env = os.environ.copy()
+                    gamepad_env.setdefault("SDL_VIDEODRIVER", "dummy")
+                    rc, out = run([str(binary), "run", str(ROOT/"validation/gamepad/physical_gamepad.saga"), "--allow-device"], env=gamepad_env, timeout=30)
                     if rc == 0 and "PHYSICAL_GAMEPAD_PASS" in out:
                         gamepad = gate("physical-gamepad", "PASS_PHYSICAL", detail=out.strip())
                     elif "PHYSICAL_GAMEPAD_REQUIRED" in out:

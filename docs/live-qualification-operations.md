@@ -19,15 +19,24 @@ was tested. A missing result is always pending, not passed.
    device is connected.
 3. Connect a real Vulkan-capable GPU and USB/Bluetooth gamepad; record the GPU
    model, exact driver version, controller model, connection method, host OS,
-   and `main` source SHA. Disable software-only ICDs such as SwiftShader
-   when qualifying physical GPU rendering.
+   and `main` source SHA. The physical workflow forces a system Vulkan ICD
+   instead of its usual software fallback; ensure that a real GPU/driver is
+   available to the runner. If the host has only SwiftShader/llvmpipe, the
+   physical GPU gate must fail.
 4. Optionally prepare a GPIO fixture with a safe, electrically isolated test
    output. A qualified operator must first approve the pin and wiring.
    Only then set `SAGA_GPIO_LIVE=1` and `SAGA_GPIO_OUTPUT_PIN`. Otherwise
    leave GPIO disabled/pending.
 5. Run **Actions → Saga physical hardware lab → Run workflow**. Enter the
    observed GPU/driver and controller identity, and explicitly confirm that
-   the operator inspected real hardware.
+   the operator inspected real hardware. Before hardware qualification starts,
+   the workflow checks the operator confirmation and metadata. During the
+   gamepad probe, **press the A button on the real controller** when prompted
+   (`PHYSICAL_GAMEPAD_PRESS_A_NOW`, within twelve seconds); mere detection
+   of a controller does not count as a successful input test. The Saga fixture
+   is `validation/gamepad/physical_gamepad.saga`. To keep the test bounded,
+   it uses the **first SDL-compatible controller** it finds. Disconnect other
+   game controllers when qualifying a specific physical device.
 6. Download the `saga-physical-lab` artifact. Keep both
    `validation/physical-lab.json` and `validation/physical-lab-receipt.json`
    with the workflow run link and operator date. The receipt records the SHA,

@@ -1,0 +1,37 @@
+// Physical lab fixture. Press the A button on the attached real
+// USB/Bluetooth controller while the probe is running. No virtual controller
+// is created by this fixture; an operator must separately confirm its origin.
+use game
+use time
+
+if not game.desktop_available() {
+    print("PHYSICAL_GAMEPAD_REQUIRED")
+} else {
+    let count = game.gamepad_count()
+    var index = 0
+    var opened_controller = false
+    var witnessed_input = false
+    // Only test the first SDL-compatible controller, to bound the test time.
+    while index < count and not opened_controller {
+        let opened = game.gamepad_open(index)
+        if is_ok(opened) {
+            opened_controller = true
+            let pad = unwrap_ok(opened)
+            print("PHYSICAL_GAMEPAD_PRESS_A_NOW")
+            let deadline = time.unix_ms() + 12000
+            while time.unix_ms() < deadline and not witnessed_input {
+                if game.gamepad_button(pad, "a") {
+                    witnessed_input = true
+                }
+                time.sleep_ms(100)
+            }
+            game.gamepad_close(pad)
+        }
+        index = index + 1
+    }
+    if witnessed_input {
+        print("PHYSICAL_GAMEPAD_PASS")
+    } else {
+        print("PHYSICAL_GAMEPAD_REQUIRED")
+    }
+}
