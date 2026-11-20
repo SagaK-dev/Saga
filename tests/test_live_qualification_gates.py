@@ -96,7 +96,7 @@ class LiveQualificationEvidenceTest(unittest.TestCase):
 
     def test_cloud_rejects_different_assumed_role(self):
         def fake_run_source(_source, *, output, **_kwargs):
-            output.append(ARN)
+            output(ARN)
 
         with patch.object(platform_qualification, "_module_available", return_value=True), \
              patch("saga.api.run_source", side_effect=fake_run_source), \
@@ -118,7 +118,7 @@ class LiveQualificationEvidenceTest(unittest.TestCase):
 
     def test_cloud_runtime_evidence_redacts_account_number(self):
         def fake_run_source(_source, *, output, **_kwargs):
-            output.append(ARN)
+            output(ARN)
 
         with patch.object(platform_qualification, "_module_available", return_value=True), \
              patch("saga.api.run_source", side_effect=fake_run_source), \
