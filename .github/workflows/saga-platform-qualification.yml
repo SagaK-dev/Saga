@@ -14,17 +14,9 @@ on:
       - 'tools/machine_control_qualification_current.py'
       - 'pyproject.toml'
       - '.github/workflows/saga-platform-qualification.yml'
+  # Required status checks must run on every PR, including docs-only changes.
+  # A path-filtered required workflow stays Pending and blocks GitHub merges.
   pull_request:
-    paths:
-      - 'saga/**'
-      - 'implementations/**'
-      - 'tools/platform_qualification.py'
-      - 'tools/platform_qualification_current.py'
-      - 'tools/check_live_qualification.py'
-      - 'tools/machine_control_qualification.py'
-      - 'tools/machine_control_qualification_current.py'
-      - 'pyproject.toml'
-      - '.github/workflows/saga-platform-qualification.yml'
 
 permissions:
   contents: read
