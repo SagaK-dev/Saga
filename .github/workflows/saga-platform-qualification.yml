@@ -9,6 +9,7 @@ on:
       - 'implementations/**'
       - 'tools/platform_qualification.py'
       - 'tools/platform_qualification_current.py'
+      - 'tools/check_live_qualification.py'
       - 'tools/machine_control_qualification.py'
       - 'tools/machine_control_qualification_current.py'
       - 'pyproject.toml'
@@ -19,6 +20,7 @@ on:
       - 'implementations/**'
       - 'tools/platform_qualification.py'
       - 'tools/platform_qualification_current.py'
+      - 'tools/check_live_qualification.py'
       - 'tools/machine_control_qualification.py'
       - 'tools/machine_control_qualification_current.py'
       - 'pyproject.toml'
@@ -70,22 +72,49 @@ jobs:
       contents: read
     environment: saga-aws-qualification
     steps:
+      - name: Require reviewed main branch for AWS credentials
+        shell: bash
+        env:
+          QUALIFICATION_REF: ${{ github.ref }}
+        run: |
+          if [[ "$QUALIFICATION_REF" != 'refs/heads/main' ]]; then
+            echo "::error::Live AWS qualification may only run against reviewed main"
+            exit 1
+          fi
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with: {python-version: '3.13'}
+      - name: Require the approved AWS OIDC qualification role
+        shell: bash
+        env:
+          SAGA_AWS_QUALIFICATION_ROLE_ARN: ${{ vars.SAGA_AWS_QUALIFICATION_ROLE_ARN }}
+        run: |
+          if [[ -z "$SAGA_AWS_QUALIFICATION_ROLE_ARN" ]]; then
+            echo "::error::SAGA_AWS_QUALIFICATION_ROLE_ARN is unset; live AWS evidence is incomplete"
+            exit 1
+          fi
       - name: Configure AWS OIDC credentials
-        if: vars.SAGA_AWS_QUALIFICATION_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.SAGA_AWS_QUALIFICATION_ROLE_ARN }}
           aws-region: ${{ vars.SAGA_AWS_QUALIFICATION_REGION || 'us-east-1' }}
       - run: python -m pip install -e '.[dev,cloud]'
       - name: Execute Saga -> boto3 -> AWS STS
-        if: vars.SAGA_AWS_QUALIFICATION_ROLE_ARN != ''
         run: python tools/platform_qualification_current.py --output validation/aws-live.json
         env:
           SAGA_AWS_LIVE: '1'
+          SAGA_AWS_EXPECTED_ROLE_ARN: ${{ vars.SAGA_AWS_QUALIFICATION_ROLE_ARN }}
           AWS_REGION: ${{ vars.SAGA_AWS_QUALIFICATION_REGION || 'us-east-1' }}
+      - name: Require successful STS identity evidence
+        if: always()
+        run: |
+          python tools/check_live_qualification.py aws validation/aws-live.json \
+            --receipt validation/aws-live-receipt.json
       - uses: actions/upload-artifact@v4
         if: always()
-        with: {name: saga-aws-live, path: validation/aws-live.json, if-no-files-found: ignore}
+        with:
+          name: saga-aws-live
+          path: |
+            validation/aws-live.json
+            validation/aws-live-receipt.json
+          if-no-files-found: warn

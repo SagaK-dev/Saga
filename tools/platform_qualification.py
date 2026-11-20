@@ -8,6 +8,7 @@ Potentially destructive/live checks are opt-in through SAGA_*_LIVE variables.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -137,8 +138,28 @@ def qualify_aws() -> dict:
         out=[]
         source = f'use cloud\nlet c = cloud.aws_client("sts", "{region}")\nlet r = cloud.call(c, "get_caller_identity", map_of())\nprint(map_get(r, "Arn", "missing"))'
         run_source(source, output=out.append, capabilities=Capabilities(allow_cloud=True))
-        if not out or out[-1] == "missing": raise RuntimeError("STS identity missing")
-        return gate("aws-live-account", "PASS", detail=f"STS GetCallerIdentity through Saga: {out[-1]}")
+        if not out or not out[-1].startswith("arn:") or out[-1] == "missing":
+            raise RuntimeError("STS identity missing or malformed")
+        # An approved GitHub Actions OIDC role must resolve to the expected
+        # partition, account and role name. The assumed-role ARN includes a
+        # session name, whereas the configured IAM role ARN may include a path.
+        expected_role = os.environ.get("SAGA_AWS_EXPECTED_ROLE_ARN", "").strip()
+        approved_role_verified = False
+        if expected_role:
+            configured = re.fullmatch(r"arn:([^:]+):iam::([0-9]{12}):role/(.+)", expected_role)
+            assumed = re.fullmatch(r"arn:([^:]+):sts::([0-9]{12}):assumed-role/([^/]+)/([^/]+)", out[-1])
+            if (configured is None or assumed is None or
+                    configured.group(1) != assumed.group(1) or
+                    configured.group(2) != assumed.group(2) or
+                    configured.group(3).split("/")[-1] != assumed.group(3)):
+                raise RuntimeError("STS principal does not match the approved qualification role")
+            approved_role_verified = True
+        # Public workflow artifacts must not expose an account number or ARN.
+        principal_hash = hashlib.sha256(out[-1].encode("utf-8")).hexdigest()
+        return gate("aws-live-account", "PASS",
+                    detail="STS GetCallerIdentity through Saga succeeded (principal redacted)",
+                    evidence={"principal_sha256": principal_hash, "region": region,
+                              "approved_role_verified": approved_role_verified})
     except Exception as exc:
         return gate("aws-live-account", "FAIL", reason=f"{type(exc).__name__}: {exc}")
 
