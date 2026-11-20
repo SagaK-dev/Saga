@@ -34,7 +34,9 @@ was tested. A missing result is always pending, not passed.
    gamepad probe, **press the A button on the real controller** when prompted
    (`PHYSICAL_GAMEPAD_PRESS_A_NOW`, within twelve seconds); mere detection
    of a controller does not count as a successful input test. The Saga fixture
-   is `validation/gamepad/physical_gamepad.saga`.
+   is `validation/gamepad/physical_gamepad.saga`. To keep the test bounded,
+   it uses the **first SDL-compatible controller** it finds. Disconnect other
+   game controllers when qualifying a specific physical device.
 6. Download the `saga-physical-lab` artifact. Keep both
    `validation/physical-lab.json` and `validation/physical-lab-receipt.json`
    with the workflow run link and operator date. The receipt records the SHA,

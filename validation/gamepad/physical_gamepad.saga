@@ -9,10 +9,13 @@ if not game.desktop_available() {
 } else {
     let count = game.gamepad_count()
     var index = 0
+    var opened_controller = false
     var witnessed_input = false
-    while index < count and not witnessed_input {
+    // Only test the first SDL-compatible controller, to bound the test time.
+    while index < count and not opened_controller {
         let opened = game.gamepad_open(index)
         if is_ok(opened) {
+            opened_controller = true
             let pad = unwrap_ok(opened)
             print("PHYSICAL_GAMEPAD_PRESS_A_NOW")
             let deadline = time.unix_ms() + 12000
